@@ -1,13 +1,13 @@
 {:paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
         io.github.com-junkawasaki/langgraph-clj
-        {:local/root "../../../com-junkawasaki/langgraph-clj"}
+        {:local/root "../../kotoba-lang/langgraph"}
         io.github.kotoba-lang/langchain-store
-        {:local/root "../../../kotoba-lang/langchain-store"}}
+        {:local/root "../../kotoba-lang/langchain-store"}}
  :aliases
  {:dev {:extra-paths ["test"]
-        :extra-deps {io.github.kotoba-lang/langchain-clj
-                     {:local/root "../../../kotoba-lang/langchain-clj"}}}
+        :extra-deps {io.github.kotoba-lang/langchain
+                     {:local/root "../../kotoba-lang/langchain"}}}
   :test {:extra-deps {org.clojure/test.check
                       {:mvn/version "1.1.1"}}}
   :lint {:extra-deps {clj-kondo/clj-kondo
