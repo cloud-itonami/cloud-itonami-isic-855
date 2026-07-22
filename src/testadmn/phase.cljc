@@ -16,11 +16,13 @@
   "Return set of allowed operations for a given phase."
   [phase-num]
   (case phase-num
-    0 #{}  ; read-only
-    1 #{:schedule-test-session}
+    0 #{}  ; read-only -- including safety flagging; phase 0 means no proposals at all
+    1 #{:schedule-test-session
+        :flag-safety-concern}
     2 #{:schedule-test-session
         :coordinate-proctor-assignment-proposal
-        :coordinate-supply-request}
+        :coordinate-supply-request
+        :flag-safety-concern}
     3 #{:schedule-test-session
         :coordinate-proctor-assignment-proposal
         :coordinate-supply-request

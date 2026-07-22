@@ -2,12 +2,12 @@
 ;; Educational support activities (ISIC 855) — standardized test administration
 
 (ns testadmn.store
-  #?(:clj
-     (:require [clojure.spec.alpha :as s]
-               [langchain-store.core :as ls])
-     :cljs
-     (:require [clojure.spec.alpha :as s]
-               [langchain-store.core :as ls])))
+  ;; langchain-store.core (kotoba-lang/langchain-store, :dev-only dep in
+  ;; deps.edn) is not required here yet -- this store is still MemStore-only,
+  ;; unlike the sibling ISIC-85 actors' Datomic-backed second store. Add the
+  ;; require when that wiring is actually built, not before (an unused
+  ;; require was here previously and flagged by clj-kondo).
+  (:require [clojure.spec.alpha :as s]))
 
 (comment
   "Educational testing/exam administration logistics coordination.
@@ -53,6 +53,16 @@
   "Store interface for test administration operations."
   (lookup-session [store session-id])
   (register-session! [store session-id session-data])
+  (create-session! [store session-id session-data]
+    "Create a session record with EXPLICIT :registered?/:verified? flags
+    taken from `session-data` (both default false when omitted) -- unlike
+    `register-session!`, does NOT force :registered? true. This is how an
+    existing-but-not-yet-registered (or registered-but-unverified) session
+    is constructed, the ground-truth state `governor/hard-check-1` needs to
+    exercise its own \"session-not-registered\" branch (a branch that was
+    previously unreachable through the public API: `register-session!` was
+    the only session-creation entry point and it unconditionally set
+    :registered? true, so nothing could ever reach that branch).")
   (log-proposal! [store proposal])
   (proposal-log [store]))
 
@@ -66,6 +76,12 @@
              {:testadmn.test-session/id session-id
               :testadmn.test-session/registered? true
               :testadmn.test-session/verified? false})))
+  (create-session! [_this session-id session-data]
+    (swap! sessions-atom assoc session-id
+      (merge {:testadmn.test-session/registered? false
+              :testadmn.test-session/verified? false}
+             session-data
+             {:testadmn.test-session/id session-id})))
   (log-proposal! [_this proposal]
     (swap! proposals-atom conj proposal))
   (proposal-log [_this]

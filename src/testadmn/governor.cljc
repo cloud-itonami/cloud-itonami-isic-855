@@ -89,10 +89,21 @@
         check3 (hard-check-3-scope-exclusion proposal)
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3))
         checks [check1 check2 check3]
-        reason (if all-pass?
-                 "all-checks-pass"
+        reason (cond
+                 (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
-                     "unknown-reason"))]
+                     "unknown-reason")
+                 ;; a legitimate safety flag passing is not the same as an
+                 ;; ordinary clean proposal -- preserve check3's specific
+                 ;; "must always escalate" signal instead of collapsing it
+                 ;; into the generic pass reason (the bug this branch fixes:
+                 ;; a real safety concern's :reason used to read
+                 ;; "all-checks-pass", indistinguishable from any other
+                 ;; passing proposal).
+                 (= "flag-safety-concern-escalates" (:reason check3))
+                 "flag-safety-concern-escalates"
+                 :else
+                 "all-checks-pass")]
     {:accepted? all-pass?
      :checks checks
      :reason reason

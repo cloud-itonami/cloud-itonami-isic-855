@@ -40,14 +40,18 @@
     (is (= "session-not-found" (:reason result)))))
 
 (deftest test-hard-check-1-session-must-be-registered
-  (let [s (store/new-mem-store)
-        proposal {:testadmn.proposal/id "p1"
-                  :testadmn.proposal/target-session-id "sess-001"
-                  :testadmn.proposal/effect :propose
-                  :testadmn.proposal/type :schedule-test-session}
-        result (gov/evaluate-proposal s proposal)]
-    (is (false? (:accepted? result)))
-    (is (= "session-not-registered" (:reason result)))))
+  (let [s (store/new-mem-store)]
+    ;; `create-session!` (unlike `register-session!`) can leave a session
+    ;; existing-but-unregistered -- exactly the ground-truth state this
+    ;; check exercises.
+    (store/create-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :schedule-test-session}
+          result (gov/evaluate-proposal s proposal)]
+      (is (false? (:accepted? result)))
+      (is (= "session-not-registered" (:reason result))))))
 
 (deftest test-hard-check-2-effect-must-be-propose
   (let [s (store/new-mem-store)]
