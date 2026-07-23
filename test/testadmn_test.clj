@@ -196,3 +196,44 @@
 (deftest test-sim-safety-escalated
   (let [result (sim/run-demo)]
     (is (= :escalated (:status (:safety result))))))
+
+;; === Backend parity (MemStore vs DatomicStore) ===
+;; Proves DatomicStore satisfies the SAME TestAdmnStore protocol contract
+;; as MemStore -- the same pattern cloud-itonami-isic-7810's
+;; employmentops.store-contract-test uses.
+
+(defn- backends []
+  [["MemStore" (store/new-mem-store)] ["DatomicStore" (store/new-datomic-store)]])
+
+(deftest datomic-store-contract-test
+  (doseq [[label s] (backends)]
+    (testing (str label ": register-session! + lookup-session")
+      (store/register-session! s "sess-001" {:testadmn.test-session/name "Test Session"})
+      (let [session (store/lookup-session s "sess-001")]
+        (is (= "sess-001" (:testadmn.test-session/id session)))
+        (is (= "Test Session" (:testadmn.test-session/name session)))
+        (is (true? (:testadmn.test-session/registered? session)))
+        (is (false? (:testadmn.test-session/verified? session)))))
+    (testing (str label ": lookup-session on a nonexistent id returns nil")
+      (is (nil? (store/lookup-session s "nonexistent"))))
+    (testing (str label ": create-session! leaves a session unregistered")
+      (store/create-session! s "sess-002" {})
+      (let [session (store/lookup-session s "sess-002")]
+        (is (some? session))
+        (is (false? (:testadmn.test-session/registered? session)))
+        (is (false? (:testadmn.test-session/verified? session)))))
+    (testing (str label ": log-proposal! + proposal-log is append-only and order-preserving")
+      (is (= [] (store/proposal-log s)))
+      (store/log-proposal! s {:testadmn.proposal/id "p1" :testadmn.proposal/type :flag-safety-concern})
+      (store/log-proposal! s {:testadmn.proposal/id "p2" :testadmn.proposal/type :schedule-test-session})
+      (is (= ["p1" "p2"] (mapv :testadmn.proposal/id (store/proposal-log s)))))))
+
+(deftest datomic-store-full-flow-matches-mem-store
+  ;; the exact governor + operation flow test-safety-concern-escalates
+  ;; exercises against MemStore, re-run against DatomicStore end-to-end.
+  (let [s (store/new-datomic-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :flag-safety-concern "sess-001"
+                                        {:concern "proctor observed integrity issue"})
+          result (op/execute-operation operation s 2)]
+      (is (= :escalated (:status result))))))
