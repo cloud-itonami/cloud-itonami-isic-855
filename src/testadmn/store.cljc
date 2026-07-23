@@ -2,12 +2,10 @@
 ;; Educational support activities (ISIC 855) — standardized test administration
 
 (ns testadmn.store
-  ;; langchain-store.core (kotoba-lang/langchain-store, :dev-only dep in
-  ;; deps.edn) is not required here yet -- this store is still MemStore-only,
-  ;; unlike the sibling ISIC-85 actors' Datomic-backed second store. Add the
-  ;; require when that wiring is actually built, not before (an unused
-  ;; require was here previously and flagged by clj-kondo).
-  (:require [clojure.spec.alpha :as s]))
+  (:require [clojure.spec.alpha :as s]
+            #?(:clj  [clojure.edn :as edn]
+               :cljs [cljs.reader :as edn])
+            [langchain.db :as d]))
 
 (comment
   "Educational testing/exam administration logistics coordination.
@@ -89,3 +87,60 @@
 
 (defn new-mem-store []
   (->MemStore (atom {}) (atom [])))
+
+;; === Datomic-backed Store (langchain.db) ===
+;; Same seam every sibling `cloud-itonami-isic-*` actor's store uses:
+;; `MemStore` is the deterministic default (dev/tests/demo, no deps);
+;; `DatomicStore` is backed by `langchain.db`, a Datomic-API-compatible EAV
+;; store, and can be pointed at a real Datomic Local or a kotoba-server pod.
+;; Both satisfy the SAME `TestAdmnStore` protocol and pass the same contract
+;; (see `datomic-store-contract-test` in the test file), so the actor,
+;; `testadmn.governor` and the audit trail never know which SSoT they run
+;; on. Session fields (:testadmn.test-session/*) are already namespaced
+;; Datomic-shaped keywords, so they transact/pull directly with no field
+;; remapping; only the free-form `:testadmn.proposal/proposal-data` inside a
+;; logged proposal needs the EDN-blob codec every sibling store uses.
+
+(def ^:private schema
+  {:testadmn.test-session/id {:db/unique :db.unique/identity}
+   :proposal-log/seq         {:db/unique :db.unique/identity}})
+
+(defn- enc [v] (pr-str v))
+(defn- dec* [s] (when s (edn/read-string s)))
+
+(def ^:private session-pull
+  [:testadmn.test-session/id :testadmn.test-session/name
+   :testadmn.test-session/registered? :testadmn.test-session/verified?
+   :testadmn.test-session/scheduled-start :testadmn.test-session/facility-id])
+
+(defn- prune-nils [m] (into {} (remove (comp nil? val) m)))
+
+(defrecord DatomicStore [conn]
+  TestAdmnStore
+  (lookup-session [_this session-id]
+    (let [m (prune-nils (d/pull (d/db conn) session-pull [:testadmn.test-session/id session-id]))]
+      (when (:testadmn.test-session/id m) m)))
+  (register-session! [_this session-id session-data]
+    (d/transact! conn [(merge session-data
+                              {:testadmn.test-session/id session-id
+                               :testadmn.test-session/registered? true
+                               :testadmn.test-session/verified? false})]))
+  (create-session! [_this session-id session-data]
+    (d/transact! conn [(merge {:testadmn.test-session/registered? false
+                               :testadmn.test-session/verified? false}
+                              session-data
+                              {:testadmn.test-session/id session-id})]))
+  (log-proposal! [this proposal]
+    (d/transact! conn [{:proposal-log/seq (count (proposal-log this))
+                        :proposal-log/record (enc proposal)}]))
+  (proposal-log [_this]
+    (->> (d/q '[:find ?s ?r :where [?e :proposal-log/seq ?s] [?e :proposal-log/record ?r]] (d/db conn))
+         (sort-by first)
+         (mapv (comp dec* second)))))
+
+(defn new-datomic-store
+  "A DatomicStore (langchain.db backend), empty until sessions/proposals are
+  registered/logged into it -- the Datomic-backed analog of
+  `new-mem-store`, used to prove protocol parity."
+  []
+  (->DatomicStore (d/create-conn schema)))
