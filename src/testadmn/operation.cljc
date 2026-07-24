@@ -2,10 +2,14 @@
 ;; Closed :propose-only op allowlist
 
 (ns testadmn.operation
-  (:require [clojure.spec.alpha :as s]
+  (:require #?(:clj  [clojure.spec.alpha :as s]
+               :cljs [cljs.spec.alpha :as s])
             [testadmn.store :as store]
             [testadmn.governor :as gov]
             [testadmn.phase :as phase]))
+
+#?(:clj (defn- nano-time [] (System/nanoTime)))
+#?(:cljs (defn- nano-time [] (* 1e6 (js/performance.now))))
 
 (comment
   "Closed :propose-only allowlist:
@@ -35,7 +39,7 @@
 (defn make-operation
   "Create an operation record."
   [op-type target-session-id proposal-data]
-  {:testadmn.proposal/id (str "op-" (System/nanoTime))
+  {:testadmn.proposal/id (str "op-" (nano-time))
    :testadmn.proposal/type op-type
    :testadmn.proposal/effect :propose
    :testadmn.proposal/target-session-id target-session-id

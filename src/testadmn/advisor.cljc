@@ -1,7 +1,9 @@
 ;; testadmn.advisor — Test Administration Advisor (LLM interface)
 
-(ns testadmn.advisor
-  (:require [clojure.spec.alpha :as s]))
+(ns testadmn.advisor)
+
+#?(:clj (defn- nano-time [] (System/nanoTime)))
+#?(:cljs (defn- nano-time [] (* 1e6 (js/performance.now))))
 
 (comment
   "Advisor generates proposals for test administration operations.
@@ -16,7 +18,7 @@
   TestAdmnAdvisor
   (propose-operation [_this context]
     ;; Mock: return a proposal based on context
-    {:testadmn.proposal/id (str "prop-" (System/nanoTime))
+    {:testadmn.proposal/id (str "prop-" (nano-time))
      :testadmn.proposal/type :schedule-test-session
      :testadmn.proposal/effect :propose
      :testadmn.proposal/target-session-id (get context :session-id "unknown")

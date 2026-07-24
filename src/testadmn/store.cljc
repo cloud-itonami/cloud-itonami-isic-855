@@ -2,7 +2,8 @@
 ;; Educational support activities (ISIC 855) — standardized test administration
 
 (ns testadmn.store
-  (:require [clojure.spec.alpha :as s]
+  (:require #?(:clj  [clojure.spec.alpha :as s]
+               :cljs [cljs.spec.alpha :as s])
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
             [langchain.db :as d]))
