@@ -2,7 +2,8 @@
 ;; Staged rollout: Phase 0 → 3
 
 (ns testadmn.phase
-  (:require [clojure.spec.alpha :as s]))
+  (:require #?(:clj  [clojure.spec.alpha :as s]
+               :cljs [cljs.spec.alpha :as s])))
 
 (comment
   "Phase 0: read-only.
