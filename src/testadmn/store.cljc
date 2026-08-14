@@ -145,3 +145,94 @@
   `new-mem-store`, used to prove protocol parity."
   []
   (->DatomicStore (d/create-conn schema)))
+
+;; === Demo seed ===
+;; The single named seed the demo surfaces read from, so that
+;; `testadmn.render-html` renders REAL store state instead of hand-typed
+;; rows. `session-001`'s field values are carried over verbatim from this
+;; repo's own pre-existing demo driver `testadmn.sim/simulate-session`
+;; (name "SAT Administration 2026-07-15", scheduled-start
+;; "2026-07-15T09:00:00Z", facility "facility-101"); the remaining entries
+;; exist to make each of `governor`'s three HARD checks reachable against
+;; real ground-truth store state rather than a synthetic proposal:
+;;
+;;   session-002  registered   -- clean target for scope-exclusion / effect holds
+;;   session-003  UNregistered -- created via `create-session!`, the entry point
+;;                               whose docstring above exists precisely so
+;;                               `hard-check-1`'s "session-not-registered" branch
+;;                               is reachable through the public API
+;;   session-009  ABSENT       -- deliberately never seeded, so "session-not-found"
+;;                               is exercised by a genuinely missing record and
+;;                               not by a fabricated one
+;;
+;; `sim` is intentionally left untouched (it seeds its own session inline);
+;; this seed is additive.
+
+(def demo-registered-sessions
+  "Sessions seeded through `register-session!` (which forces :registered? true,
+  :verified? false -- see the deftype above)."
+  [{:testadmn.test-session/id "session-001"
+    :testadmn.test-session/name "SAT Administration 2026-07-15"
+    :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+    :testadmn.test-session/facility-id "facility-101"}
+   {:testadmn.test-session/id "session-002"
+    :testadmn.test-session/name "ACT Administration 2026-07-22"
+    :testadmn.test-session/scheduled-start "2026-07-22T09:00:00Z"
+    :testadmn.test-session/facility-id "facility-204"}])
+
+(def demo-unregistered-sessions
+  "Sessions seeded through `create-session!`, left :registered? false on
+  purpose -- ground truth for `governor/hard-check-1`'s second branch."
+  [{:testadmn.test-session/id "session-003"
+    :testadmn.test-session/name "AP Chemistry Administration 2026-08-03"
+    :testadmn.test-session/scheduled-start "2026-08-03T13:00:00Z"
+    :testadmn.test-session/facility-id "facility-101"}])
+
+(def demo-absent-session-id
+  "An id deliberately NOT seeded, so `hard-check-1`'s \"session-not-found\"
+  branch is driven by a real absent lookup."
+  "session-009")
+
+(def demo-rooms
+  "Room label and proctor headcount the demo proposes for each session, so
+  that every room identifier a demo surface displays has a named source in
+  this repo rather than being typed inline by a renderer. `session-001`'s
+  values (\"Gym A\", 3 proctors) are this repo's own pre-existing figures
+  from `testadmn.sim/simulate-session`; the rest follow the same shape for
+  the sessions added above.
+
+  This is scheduling PROPOSAL input, not session ground truth -- it is
+  deliberately NOT part of the `:testadmn/test-session` record, which the
+  governor reads as ground truth."
+  {"session-001" {:room "Gym A"    :proctors 3}
+   "session-002" {:room "Hall B"   :proctors 4}
+   "session-003" {:room "Lab C"    :proctors 2}
+   "session-009" {:room "Annex D"  :proctors 2}})
+
+(def demo-proctor-ids
+  "The proctor ids `testadmn.sim/simulate-session` proposes for a proctor
+  assignment, reused verbatim so the demo surfaces show the same ids."
+  ["p1" "p2" "p3"])
+
+(defn demo-session-ids
+  "Every session id the demo seed touches, in a stable render order --
+  including `demo-absent-session-id`, which by construction has no record."
+  []
+  (concat (map :testadmn.test-session/id demo-registered-sessions)
+          (map :testadmn.test-session/id demo-unregistered-sessions)
+          [demo-absent-session-id]))
+
+(defn seed-demo-store!
+  "Seeds `store` with the demo sessions above and returns it. Uses only the
+  public protocol, so it seeds a MemStore and a DatomicStore identically."
+  [store]
+  (doseq [{:testadmn.test-session/keys [id] :as m} demo-registered-sessions]
+    (register-session! store id (dissoc m :testadmn.test-session/id)))
+  (doseq [{:testadmn.test-session/keys [id] :as m} demo-unregistered-sessions]
+    (create-session! store id (dissoc m :testadmn.test-session/id)))
+  store)
+
+(defn seed-demo-store
+  "A fresh `new-mem-store` with the demo seed already applied."
+  []
+  (seed-demo-store! (new-mem-store)))
