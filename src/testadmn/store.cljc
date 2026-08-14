@@ -193,6 +193,27 @@
   branch is driven by a real absent lookup."
   "session-009")
 
+(def demo-rooms
+  "Room label and proctor headcount the demo proposes for each session, so
+  that every room identifier a demo surface displays has a named source in
+  this repo rather than being typed inline by a renderer. `session-001`'s
+  values (\"Gym A\", 3 proctors) are this repo's own pre-existing figures
+  from `testadmn.sim/simulate-session`; the rest follow the same shape for
+  the sessions added above.
+
+  This is scheduling PROPOSAL input, not session ground truth -- it is
+  deliberately NOT part of the `:testadmn/test-session` record, which the
+  governor reads as ground truth."
+  {"session-001" {:room "Gym A"    :proctors 3}
+   "session-002" {:room "Hall B"   :proctors 4}
+   "session-003" {:room "Lab C"    :proctors 2}
+   "session-009" {:room "Annex D"  :proctors 2}})
+
+(def demo-proctor-ids
+  "The proctor ids `testadmn.sim/simulate-session` proposes for a proctor
+  assignment, reused verbatim so the demo surfaces show the same ids."
+  ["p1" "p2" "p3"])
+
 (defn demo-session-ids
   "Every session id the demo seed touches, in a stable render order --
   including `demo-absent-session-id`, which by construction has no record."

@@ -61,19 +61,22 @@
 
   Session ids come from `store/demo-registered-sessions` (session-001,
   session-002), `store/demo-unregistered-sessions` (session-003) and
-  `store/demo-absent-session-id` (session-009). Proposal payloads reuse
-  this repo's own vocabulary: room/proctors and the proctor-id triple from
-  `testadmn.sim`, answer sheets and pencils from the README's description
-  of `:coordinate-supply-request`."
+  `store/demo-absent-session-id` (session-009). Every room label and
+  proctor id shown is read from `store/demo-rooms` / `store/demo-proctor-ids`
+  rather than typed here, so no identifier on the rendered page lacks a
+  named source in this repo. The remaining payload values are proposal
+  QUANTITIES (supply counts, attendance counts) using the README's own
+  vocabulary for `:coordinate-supply-request` and `:log-attendance-note`;
+  they are inputs the demo proposes, not store ground truth."
   [;; --- phase ladder, clean proposals against a registered session ---
    {:phase 0 :op :schedule-test-session :session "session-001"
-    :data {:room "Gym A" :proctors 3}}
+    :data (store/demo-rooms "session-001")}
    {:phase 1 :op :schedule-test-session :session "session-001"
-    :data {:room "Gym A" :proctors 3}}
+    :data (store/demo-rooms "session-001")}
    {:phase 2 :op :coordinate-proctor-assignment-proposal :session "session-001"
-    :data {:proctor-ids ["p1" "p2" "p3"]}}
+    :data {:proctor-ids store/demo-proctor-ids}}
    {:phase 3 :op :schedule-test-session :session "session-001"
-    :data {:room "Gym A" :proctors 3}}
+    :data (store/demo-rooms "session-001")}
    {:phase 3 :op :coordinate-supply-request :session "session-001"
     :data {:answer-sheets 250 :pencils 300}}
    {:phase 3 :op :log-attendance-note :session "session-001"
@@ -81,7 +84,7 @@
    {:phase 3 :op :flag-safety-concern :session "session-001"
     :data {:concern "proctor observed possible integrity issue at station 5"}}
    {:phase 3 :op :schedule-test-session :session "session-002"
-    :data {:room "Hall B" :proctors 4}}
+    :data (store/demo-rooms "session-002")}
 
    ;; --- HARD check 3: scope exclusion ---
    {:phase 3 :op :schedule-test-session :session "session-002"
@@ -93,13 +96,13 @@
 
    ;; --- HARD check 2: effect must be :propose ---
    {:phase 3 :op :schedule-test-session :session "session-002"
-    :data {:room "Hall B" :proctors 4} :force-effect :commit}
+    :data (store/demo-rooms "session-002") :force-effect :commit}
 
    ;; --- HARD check 1: session ground truth ---
    {:phase 3 :op :schedule-test-session :session "session-003"
-    :data {:room "Lab C" :proctors 2}}
+    :data (store/demo-rooms "session-003")}
    {:phase 3 :op :schedule-test-session :session "session-009"
-    :data {:room "Annex D" :proctors 2}}])
+    :data (store/demo-rooms "session-009")}])
 
 (defn- exec!
   "Builds a real operation and runs it through the real pipeline."
@@ -134,10 +137,6 @@
   [{:keys [result]}]
   (and (= :rejected (:status result))
        (contains? result :checks)))
-
-(defn- phase-block? [{:keys [result]}]
-  (and (= :rejected (:status result))
-       (not (contains? result :checks))))
 
 (defn- failed-check
   "The first HARD check that actually failed, straight out of the governor's
