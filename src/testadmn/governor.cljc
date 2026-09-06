@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Five HARD, permanent, un-overridable checks
+;; Seven HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -9,7 +9,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Six HARD checks (un-overridable):
+   Seven HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -33,6 +33,14 @@
       CHECK 3, which runs before this check). A category-less or
       unknown-category accommodation is rejected outright instead of being
       auto-committed at Phase 3, because auto-commit must not let a logistics
+   6. Test-taker enrollment binding — attendance and accommodations may name only test-takers enrolled to the target session's roster.
+   7. Bounded supply-consumable allowlist — a :coordinate-supply-request must
+      name at least one recognized non-content consumable, and every item must
+      be in the closed consumable set (answer sheets, pencils, scratch paper,
+      etc.). Generic scope-exclusion (check 3) only blocks content-bearing
+      TERMS; it does not bound WHICH non-content consumables a request may
+      order. An unrecognized or empty supply request is rejected outright
+      instead of being auto-committed at Phase 3, because auto-commit must not
       channel silently grant an access arrangement with no HOW documented.")
 
 ;; === Scope Exclusion Keywords ===
@@ -266,6 +274,71 @@
           :else
           {:pass? true :reason "test-takers-enrolled"})))))
 
+
+;; === Bounded Supply-Consumable Allowlist (HARD CHECK 7) ===
+;; ISIC-855 test administration coordinates the supply of non-content
+;; consumables to a test session (answer sheets, pencils, scratch paper).
+;; The allowlist schedules :coordinate-supply-request from Phase 2 and
+;; auto-commits clean proposals at Phase 3. Generic scope-exclusion (HARD
+;; CHECK 3) only blocks content-bearing TERMS, so it does not bound WHICH
+;; non-content consumables a request may order or whether it names any at
+;; all. An arbitrary or unrecognized consumable line item (or an empty
+;; request) would otherwise pass check 3 and auto-commit at Phase 3. HARD
+;; CHECK 7 closes that: every :coordinate-supply-request must name at least
+;; one item from the closed set of recognized test-administration
+;; consumables, and must not name anything outside it — rejected outright,
+;; never held, never auto-committed at Phase 3.
+
+(def ^:private allowed-consumables
+  ;; the closed set of logistics-only non-content consumables a
+  ;; :coordinate-supply-request may order for a session. Each is a physical
+  ;; delivery item, never test content, grading, eligibility, or policy.
+  #{"answer-sheets" "answer-sheet" "pencils" "pencil" "scratch-paper"
+    "erasers" "eraser" "water" "tissues" "tally-counters" "timers"
+    "latex-free-gloves" "extra-batteries" "registration-pads"})
+
+(defn- supply-item-entries
+  "Normalize a supply-request proposal to its list of item strings.
+   Produces [] (empty) when the request names no items."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})
+        raw (:supplies data)]
+    (cond
+      (empty? raw) []
+      (string? raw) [raw]
+      (sequential? raw) (filter string? raw)
+      :else [])))
+
+(defn- has-unrecognized-consumable?
+  "True when the request names at least one item outside the closed
+   consumable set (case-insensitive)."
+  [proposal]
+  (let [items (supply-item-entries proposal)]
+    (some #(not (contains? allowed-consumables (str/lower-case %))) items)))
+
+(defn- hard-check-7-supply-allowlist
+  "HARD CHECK 7: a :coordinate-supply-request must name at least one
+   recognized non-content consumable, and every named item must be in the
+   closed consumable set. Applies only to :coordinate-supply-request; all
+   other ops pass trivially.
+   Note: content-bearing material (test booklets, answer keys) is already
+   excluded earlier by HARD CHECK 3 (scope-exclusion), which runs before this
+   check — so this check only guards the supply request's own logistics
+   contract (items MUST be declared and MUST be recognized consumables)."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :coordinate-supply-request)
+      {:pass? true :reason "not-a-supply-request"}
+      (cond
+        (empty? (supply-item-entries proposal))
+        {:pass? false :reason "supply-missing-items" :proposal proposal}
+        (has-unrecognized-consumable? proposal)
+        {:pass? false :reason "supply-unrecognized-consumable"
+         :proposal proposal}
+        :else
+        {:pass? true :reason "supply-consumables-allowed"}))))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -276,9 +349,11 @@
         check4 (hard-check-4-proctor-impartiality proposal)
         check5 (hard-check-5-accommodation-logistics proposal)
         check6 (hard-check-6-test-taker-enrollment store proposal)
-        checks [check1 check2 check3 check4 check5 check6]
+        check7 (hard-check-7-supply-allowlist proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
-                       (:pass? check4) (:pass? check5) (:pass? check6))
+                       (:pass? check4) (:pass? check5) (:pass? check6)
+                       (:pass? check7))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
