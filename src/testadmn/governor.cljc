@@ -9,7 +9,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Five HARD checks (un-overridable):
+   Six HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -207,6 +207,65 @@
         :else
         {:pass? true :reason "accommodation-logistics-only"}))))
 
+;; === Test-Taker Enrollment Binding (HARD CHECK 6) ===
+;; ISIC-855 test administration must log attendance for -- and arrange
+;; accommodations for (HOW a test-taker accesses a session) -- only people who
+;; are actually registered to sit THAT session. A :log-attendance-note records
+;; check-in/absent for real enrolled test-takers; naming an un-enrolled or
+;; unknown id is the exam-integrity equivalent of proxying / impersonation
+;; (someone sits the exam who is not registered), and an accommodation for an
+;; unregistered person is a silent access grant to a non-participant. HARD
+;; CHECK 6 therefore requires every test-taker id referenced by
+;; :log-attendance-note or :coordinate-accommodation-logistics to be a member
+;; of the target session's roster. A session with no roster, or a proposal
+;; naming an id outside it, is rejected outright -- never held and never
+;; auto-committed at Phase 3 (the Phase-3 path would otherwise auto-commit
+;; clean-look attendance / accommodation for a fabricated person).
+
+(defn- session-roster-set
+  "Normalize the target session's roster to a Set of test-taker id strings.
+   Across both backends the roster may arrive as a set (#{...}) or as a
+   Datomic cardinality-many vector of strings; normalize both to a set so the
+   membership check is identical. Absent/empty roster => empty set, which makes
+   every attendance/accommodation proposal fail the membership check below."
+  [session]
+  (-> (get session :testadmn.test-session/roster #{})
+      (as-> r (if (nil? r) #{} r))
+      (as-> r (if (vector? r) (set r) r))))
+
+(defn- named-test-taker-ids
+  "Every test-taker id a proposal names: attendance check-in/absent sets, and
+   the single :test-taker an accommodation logistics proposal arranges for.
+   Empty when the proposal references none."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})]
+    (case (get proposal :testadmn.proposal/type)
+      :log-attendance-note
+      (set (concat (:check-in data []) (:absent data [])))
+      :coordinate-accommodation-logistics
+      (when-let [id (:test-taker data)] #{id})
+      #{})))
+
+(defn- hard-check-6-test-taker-enrollment
+  "HARD CHECK 6: attendance/accommodation must name only test-takers enrolled
+   to the target session. Applies only to :log-attendance-note and
+   :coordinate-accommodation-logistics; all other ops pass trivially."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not (contains? #{:log-attendance-note :coordinate-accommodation-logistics} type))
+      {:pass? true :reason "no-test-taker-binding-required"}
+      (let [session (store/lookup-session store target-session-id)
+            roster (session-roster-set session)
+            named (named-test-taker-ids proposal)]
+        (cond
+          (empty? named)
+          {:pass? false :reason "attendance-missing-test-taker" :proposal proposal}
+          (not (every? roster named))
+          {:pass? false :reason "test-taker-not-enrolled" :proposal proposal
+           :unknown (vec (remove roster named))}
+          :else
+          {:pass? true :reason "test-takers-enrolled"})))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -216,9 +275,10 @@
         check3 (hard-check-3-scope-exclusion proposal)
         check4 (hard-check-4-proctor-impartiality proposal)
         check5 (hard-check-5-accommodation-logistics proposal)
-        checks [check1 check2 check3 check4 check5]
+        check6 (hard-check-6-test-taker-enrollment store proposal)
+        checks [check1 check2 check3 check4 check5 check6]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
-                       (:pass? check4) (:pass? check5))
+                       (:pass? check4) (:pass? check5) (:pass? check6))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
