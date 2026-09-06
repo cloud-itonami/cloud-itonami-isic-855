@@ -170,6 +170,82 @@
           result (op/execute-operation operation s 2)]
       (is (= :escalated (:status result))))))
 
+;; === Closed allowlist coverage: the 3 untested logistics ops ===
+;; The allowlist (operation.cljc) declares 5 :propose-only ops, but operation
+;; execution tests only exercised :schedule-test-session and
+;; :flag-safety-concern. The remaining core ISIC-855 test-administration
+;; logistics ops — proctor assignment proposal, supply coordination, and
+;; attendance logging — were never driven through execute-operation.
+;; These fill that gap so the closed allowlist contract is verified end to end.
+
+(deftest test-proctor-assignment-proposal-phase2-held
+  ;; Phase 2 gates :coordinate-proctor-assignment-proposal (approval-gated).
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-proctor-assignment-proposal "sess-001"
+                                        {:proctors ["A. Yamada" "B. Sato"]
+                                         :rooms ["Gym A" "Room 2"]})
+          result (op/execute-operation operation s 2)]
+      (is (= :held-for-approval (:status result))))))
+
+(deftest test-proctor-assignment-proposal-phase1-blocked
+  ;; Phase 1 has not yet unlocked the proctor-assignment op.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-proctor-assignment-proposal "sess-001"
+                                        {:proctors ["A. Yamada"]})
+          result (op/execute-operation operation s 1)]
+      (is (= :rejected (:status result)))
+      (is (= "operation-not-allowed-in-phase" (:reason result))))))
+
+(deftest test-proctor-assignment-auto-commits-phase3
+  ;; Phase 3 auto-commits clean proposals for this logistics op.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-proctor-assignment-proposal "sess-001"
+                                        {:proctors ["A. Yamada" "B. Sato"]})
+          result (op/execute-operation operation s 3)]
+      (is (= :auto-committed (:status result))))))
+
+(deftest test-supply-request-phase2-held
+  ;; :coordinate-supply-request (non-content consumables) is gated at Phase 2.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-supply-request "sess-001"
+                                        {:supplies ["answer-sheets" "pencils" "scratch-paper"]})
+          result (op/execute-operation operation s 2)]
+      (is (= :held-for-approval (:status result))))))
+
+(deftest test-supply-request-scope-excludes-content
+  ;; The governor must still block content-bearing supply requests: ordering
+  ;; test booklets (test-content) with the supply op must not sneak through.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-supply-request "sess-001"
+                                        {:supplies ["test-content" "booklets"]})
+          result (op/execute-operation operation s 2)]
+      (is (= :rejected (:status result)))
+      (is (= "scope-excluded" (:reason result))))))
+
+(deftest test-attendance-note-phase3-auto-commit
+  ;; :log-attendance-note is only unlocked at Phase 3 and auto-commits.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :log-attendance-note "sess-001"
+                                        {:check-in ["s001" "s002"] :absent ["s003"]})
+          result (op/execute-operation operation s 3)]
+      (is (= :auto-committed (:status result))))))
+
+(deftest test-attendance-note-phase2-blocked
+  ;; Attendance logging must not be allowed before Phase 3.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :log-attendance-note "sess-001"
+                                        {:check-in ["s001"]})
+          result (op/execute-operation operation s 2)]
+      (is (= :rejected (:status result)))
+      (is (= "operation-not-allowed-in-phase" (:reason result))))))
+
 ;; === Integration Tests ===
 
 (deftest test-sim-runs
