@@ -2,7 +2,7 @@
 
 Educational support activities (ISIC 855) actor — Test administration logistics coordination.
 
-**Focus domain**: Educational testing/exam-administration logistics coordination (scheduling test sessions, proctor assignments, supply coordination, attendance logging, safety-concern flagging).
+**Focus domain**: Educational testing/exam-administration logistics coordination (scheduling test sessions, proctor assignments, supply coordination, attendance logging, safety-concern flagging, accessibility accommodation logistics).
 
 **Out of scope**: Test content decisions, grading/scoring, eligibility determinations, academic policy, safety-authority overrides.
 
@@ -11,17 +11,18 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Four HARD, permanent, un-overridable checks
+- `testadmn.governor` — Five HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Four HARD Checks
+## Governor: Five HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
 3. **Scope exclusion** — test-content, answer-keys, grading, eligibility, academic-integrity adjudication, or safety-authority overrides are blocked. Legitimate `:flag-safety-concern` escalates only, never auto-commits.
 4. **Proctor impartiality** — a `:coordinate-proctor-assignment-proposal` must not name a proctor declared non-impartial (teaching/related to a registered test-taker of the session). A conflicted proctor is rejected outright, never held and never auto-committed at Phase 3.
+5. **Accessibility accommodation is logistics-only** — a `:coordinate-accommodation-logistics` proposal must declare at least one recognized accommodation category (`:time-extension`, `:reader/scribe`, `:accessible-room`, `:alternate-format`, `:assistive-tech`) and must not carry any test-content, grading, eligibility, or policy change. An accommodation arranges HOW a test-taker accesses a session, never WHAT is judged. A category-less, unknown-category, or content-bearing accommodation is rejected outright, never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
@@ -30,6 +31,7 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `:coordinate-supply-request` — non-content consumables (answer sheets, pencils)
 - `:log-attendance-note` — test-session attendance/check-in logging
 - `:flag-safety-concern` — facility/integrity/wellbeing concerns (always escalates)
+- `:coordinate-accommodation-logistics` — accessibility/reasonable accommodations (extra time, reader/scribe, accessible room, alternate format, assistive tech)
 
 Proctor assignment proposal shape (impartiality is MANDATORY on every proctor):
 
@@ -43,11 +45,19 @@ that is not explicitly declared impartial) is `proctor-conflict-of-interest`
 rejected by the governor — never held at Phase 2, never auto-committed at
 Phase 3.
 
+Accommodation proposal shape (`:accommodations` carries category keywords from
+the closed set; the governor rejects unknown or omitted categories and any
+content-bearing payload):
+
+```clojure
+{:accommodations [:time-extension :alternate-format]}
+```
+
 ## Staged Phases
 
 - **Phase 0**: read-only
 - **Phase 1**: `:schedule-test-session` (approval-gated)
-- **Phase 2**: + `:coordinate-proctor-assignment-proposal`, `:coordinate-supply-request` (approval-gated)
+- **Phase 2**: + `:coordinate-proctor-assignment-proposal`, `:coordinate-supply-request`, `:coordinate-accommodation-logistics` (approval-gated)
 - **Phase 3**: auto-commits clean proposals; safety concerns always escalate
 
 ## Testing

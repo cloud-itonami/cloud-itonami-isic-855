@@ -399,3 +399,111 @@
                                                      :testadmn.proposal/proctor-impartial? true}]})
           result (op/execute-operation operation s 3)]
       (is (= :auto-committed (:status result))))))
+;; === Accessibility Accommodation Logistics (op + HARD CHECK 5) ===
+;; ISIC-855 test-administration must arrange HOW a test-taker with a disability
+;; accesses a session (extra time, reader/scribe, accessible room, alternate
+;; format, assistive tech) without changing test content, grading, or
+;; eligibility. The allowlist schedules :coordinate-accommodation-logistics
+;; from Phase 2 and auto-commits clean proposals at Phase 3, so an invalid
+;; (category-less, unknown-category, or content-bearing) accommodation MUST be
+;; rejected by the governor rather than auto-committed.
+
+(deftest test-accommodation-op-phase2-held
+  ;; Phase 2 gates :coordinate-accommodation-logistics (approval-gated).
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-accommodation-logistics "sess-001"
+                                        {:accommodations [:time-extension :alternate-format]
+                                         :test-taker "T. Nakagawa"})
+          result (op/execute-operation operation s 2)]
+      (is (= :held-for-approval (:status result))))))
+
+(deftest test-accommodation-op-phase1-blocked
+  ;; Phase 1 has not yet unlocked the accommodation logistics op.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-accommodation-logistics "sess-001"
+                                        {:accommodations [:time-extension]})
+          result (op/execute-operation operation s 1)]
+      (is (= :rejected (:status result)))
+      (is (= "operation-not-allowed-in-phase" (:reason result))))))
+
+(deftest test-accommodation-auto-commits-phase3
+  ;; Phase 3 auto-commits clean accommodation logistics proposals.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-accommodation-logistics "sess-001"
+                                        {:accommodations [:reader/scribe :accessible-room]})
+          result (op/execute-operation operation s 3)]
+      (is (= :auto-committed (:status result))))))
+
+(deftest test-hard-check-5-missing-category-rejected
+  ;; A logistics-only op that declares no accommodation category must be
+  ;; rejected: auto-commit must not turn a contentless channel into a silent
+  ;; access grant with no HOW documented.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :coordinate-accommodation-logistics
+                    :testadmn.proposal/proposal-data {:test-taker "T. Nakagawa"}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (false? (:accepted? result)))
+      (is (= "accommodation-missing-category" (:reason result))))))
+
+(deftest test-hard-check-5-unknown-category-rejected
+  ;; A category outside the closed accommodate set must be rejected.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :coordinate-accommodation-logistics
+                    :testadmn.proposal/proposal-data {:accommodations [:custom-extension]}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (false? (:accepted? result)))
+      (is (= "accommodation-unknown-category" (:reason result))))))
+
+(deftest test-hard-check-3-blocks-content-bearing-accommodation
+  ;; An accommodation must never alter test content or grading; a payload that
+  ;; carries forbidden content terms is rejected outright, never auto-committed
+  ;; at Phase 3.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :coordinate-accommodation-logistics
+                    :testadmn.proposal/proposal-data
+                    {:accommodations [:time-extension]
+                     :note "change the scoring to rubrics"}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (false? (:accepted? result)))
+      (is (= "scope-excluded" (:reason result))))))
+
+(deftest test-hard-check-5-clean-accommodation-passes
+  ;; A clean logistics-only accommodation with a recognized category passes.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :coordinate-accommodation-logistics
+                    :testadmn.proposal/proposal-data
+                    {:accommodations [:time-extension :reader/scribe]}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (true? (:accepted? result)))
+      (is (= "all-checks-pass" (:reason result))))))
+
+(deftest test-accommodation-content-never-auto-commits-phase3
+  ;; End to end: a content-bearing accommodation at Phase 3 is blocked by the
+  ;; governor and never auto-committed.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-accommodation-logistics "sess-001"
+                                        {:accommodations [:time-extension]
+                                         :note "adjust the grading"})
+          result (op/execute-operation operation s 3)]
+      (is (= :rejected (:status result)))
+      (is (= "scope-excluded" (:reason result))))))

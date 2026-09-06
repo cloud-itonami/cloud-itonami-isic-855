@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Four HARD, permanent, un-overridable checks
+;; Five HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -9,7 +9,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Four HARD checks (un-overridable):
+   Five HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -21,7 +21,19 @@
       rejected outright; it is never held and never auto-committed, because an
       examiner must never proctor a test-taker they personally teach or are
       otherwise non-impartial toward. This is an exam-integrity control that the
-      closed allowlist schedules at Phase 2+ and MUST NOT auto-commit at Phase 3.")
+      closed allowlist schedules at Phase 2+ and MUST NOT auto-commit at Phase 3.
+   5. Accessibility accommodation is logistics-only — a
+      :coordinate-accommodation-logistics proposal must declare at least one
+      accommodation category from the closed allowlist (time-extension,
+      reader/scribe, accessible-room, alternate-format, assistive-tech). An
+      accommodation arranges HOW a registered test-taker accesses a session
+      (extra time, reader/scribe, accessible room, alternate format, assistive
+      tech) — it must never alter the test content, grading, or eligibility
+      judged (any content/eligibility change is already excluded by HARD
+      CHECK 3, which runs before this check). A category-less or
+      unknown-category accommodation is rejected outright instead of being
+      auto-committed at Phase 3, because auto-commit must not let a logistics
+      channel silently grant an access arrangement with no HOW documented.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -140,6 +152,61 @@
         :else
         {:pass? true :reason "proctors-impartial"}))))
 
+;; === Accessibility Accommodation Logistics (HARD CHECK 5) ===
+;; ISIC-855 test-administration must arrange HOW a test-taker with a disability
+;; accesses a session — extra time, reader/scribe, accessible room, alternate
+;; format, assistive tech — WITHOUT changing the test content, grading, or
+;; eligibility judged. The allowlist schedules
+;; :coordinate-accommodation-logistics from Phase 2 and auto-commits clean
+;; proposals at Phase 3, so a category-less or unknown-category accommodation
+;; proposal MUST be rejected by the governor rather than held (holding would
+;; still let Phase 3 auto-commit it). An accommodation declares its access
+;; category explicitly; it must never smuggle in a forfeited grading/eligibility
+;; decision (any such change is already excluded by HARD CHECK 3 above).
+
+(def ^:private accommodation-categories
+  ;; the closed set of logistics-only access accommodations a test-taker may be
+  ;; granted. Each is a HOW-to-access arrangement, never a WHAT-is-judged change.
+  #{:time-extension
+    :reader/scribe
+    :accessible-room
+    :alternate-format
+    :assistive-tech})
+
+(defn- accommodation-entries
+  "Normalize an accommodation-logistics proposal to its list of accommodation
+   category keywords. Produces [] (empty) when the proposal declares none."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})
+        raw (:accommodations data)]
+    (cond
+      (empty? raw) []
+      (keyword? raw) [raw]
+      :else (filter keyword? raw))))
+
+(defn- hard-check-5-accommodation-logistics
+  "HARD CHECK 5: an accommodation-logistics proposal must declare at least one
+   recognized accommodation category. Applies only to the
+   :coordinate-accommodation-logistics op; all other ops pass trivially.
+   Note: any attempt to change test content, grading, or eligibility through
+   an accommodation payload is already excluded earlier by HARD CHECK 3
+   (scope-exclusion), which runs before this check — so this check only guards
+   the accommodation's own logistics contract (a category MUST be declared and
+   MUST be one of the closed set)."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :coordinate-accommodation-logistics)
+      {:pass? true :reason "not-an-accommodation"}
+      (cond
+        (empty? (accommodation-entries proposal))
+        {:pass? false :reason "accommodation-missing-category"
+         :proposal proposal}
+        (not (every? accommodation-categories (accommodation-entries proposal)))
+        {:pass? false :reason "accommodation-unknown-category"
+         :proposal proposal}
+        :else
+        {:pass? true :reason "accommodation-logistics-only"}))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -148,8 +215,10 @@
         check2 (hard-check-2-effect-is-propose proposal)
         check3 (hard-check-3-scope-exclusion proposal)
         check4 (hard-check-4-proctor-impartiality proposal)
-        checks [check1 check2 check3 check4]
-        all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3) (:pass? check4))
+        check5 (hard-check-5-accommodation-logistics proposal)
+        checks [check1 check2 check3 check4 check5]
+        all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
+                       (:pass? check4) (:pass? check5))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
