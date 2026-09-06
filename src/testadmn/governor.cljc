@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Six HARD, permanent, un-overridable checks
+;; Seven HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -9,7 +9,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Six HARD checks (un-overridable):
+   Seven HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -33,15 +33,15 @@
       CHECK 3, which runs before this check). A category-less or
       unknown-category accommodation is rejected outright instead of being
       auto-committed at Phase 3, because auto-commit must not let a logistics
-      channel silently grant an access arrangement with no HOW documented.
-   6. Bounded supply-consumable allowlist — a :coordinate-supply-request must
+   6. Test-taker enrollment binding — attendance and accommodations may name only test-takers enrolled to the target session's roster.
+   7. Bounded supply-consumable allowlist — a :coordinate-supply-request must
       name at least one recognized non-content consumable, and every item must
       be in the closed consumable set (answer sheets, pencils, scratch paper,
       etc.). Generic scope-exclusion (check 3) only blocks content-bearing
       TERMS; it does not bound WHICH non-content consumables a request may
       order. An unrecognized or empty supply request is rejected outright
       instead of being auto-committed at Phase 3, because auto-commit must not
-      let a logistics channel silently order an unsanctioned consumable.")
+      channel silently grant an access arrangement with no HOW documented.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -215,7 +215,67 @@
         :else
         {:pass? true :reason "accommodation-logistics-only"}))))
 
-;; === Bounded Supply-Consumable Allowlist (HARD CHECK 6) ===
+;; === Test-Taker Enrollment Binding (HARD CHECK 6) ===
+;; ISIC-855 test administration must log attendance for -- and arrange
+;; accommodations for (HOW a test-taker accesses a session) -- only people who
+;; are actually registered to sit THAT session. A :log-attendance-note records
+;; check-in/absent for real enrolled test-takers; naming an un-enrolled or
+;; unknown id is the exam-integrity equivalent of proxying / impersonation
+;; (someone sits the exam who is not registered), and an accommodation for an
+;; unregistered person is a silent access grant to a non-participant. HARD
+;; CHECK 6 therefore requires every test-taker id referenced by
+;; :log-attendance-note or :coordinate-accommodation-logistics to be a member
+;; of the target session's roster. A session with no roster, or a proposal
+;; naming an id outside it, is rejected outright -- never held and never
+;; auto-committed at Phase 3 (the Phase-3 path would otherwise auto-commit
+;; clean-look attendance / accommodation for a fabricated person).
+
+(defn- session-roster-set
+  "Normalize the target session's roster to a Set of test-taker id strings.
+   Across both backends the roster may arrive as a set (#{...}) or as a
+   Datomic cardinality-many vector of strings; normalize both to a set so the
+   membership check is identical. Absent/empty roster => empty set, which makes
+   every attendance/accommodation proposal fail the membership check below."
+  [session]
+  (-> (get session :testadmn.test-session/roster #{})
+      (as-> r (if (nil? r) #{} r))
+      (as-> r (if (vector? r) (set r) r))))
+
+(defn- named-test-taker-ids
+  "Every test-taker id a proposal names: attendance check-in/absent sets, and
+   the single :test-taker an accommodation logistics proposal arranges for.
+   Empty when the proposal references none."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})]
+    (case (get proposal :testadmn.proposal/type)
+      :log-attendance-note
+      (set (concat (:check-in data []) (:absent data [])))
+      :coordinate-accommodation-logistics
+      (when-let [id (:test-taker data)] #{id})
+      #{})))
+
+(defn- hard-check-6-test-taker-enrollment
+  "HARD CHECK 6: attendance/accommodation must name only test-takers enrolled
+   to the target session. Applies only to :log-attendance-note and
+   :coordinate-accommodation-logistics; all other ops pass trivially."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not (contains? #{:log-attendance-note :coordinate-accommodation-logistics} type))
+      {:pass? true :reason "no-test-taker-binding-required"}
+      (let [session (store/lookup-session store target-session-id)
+            roster (session-roster-set session)
+            named (named-test-taker-ids proposal)]
+        (cond
+          (empty? named)
+          {:pass? false :reason "attendance-missing-test-taker" :proposal proposal}
+          (not (every? roster named))
+          {:pass? false :reason "test-taker-not-enrolled" :proposal proposal
+           :unknown (vec (remove roster named))}
+          :else
+          {:pass? true :reason "test-takers-enrolled"})))))
+
+
+;; === Bounded Supply-Consumable Allowlist (HARD CHECK 7) ===
 ;; ISIC-855 test administration coordinates the supply of non-content
 ;; consumables to a test session (answer sheets, pencils, scratch paper).
 ;; The allowlist schedules :coordinate-supply-request from Phase 2 and
@@ -224,7 +284,7 @@
 ;; non-content consumables a request may order or whether it names any at
 ;; all. An arbitrary or unrecognized consumable line item (or an empty
 ;; request) would otherwise pass check 3 and auto-commit at Phase 3. HARD
-;; CHECK 6 closes that: every :coordinate-supply-request must name at least
+;; CHECK 7 closes that: every :coordinate-supply-request must name at least
 ;; one item from the closed set of recognized test-administration
 ;; consumables, and must not name anything outside it — rejected outright,
 ;; never held, never auto-committed at Phase 3.
@@ -256,8 +316,8 @@
   (let [items (supply-item-entries proposal)]
     (some #(not (contains? allowed-consumables (str/lower-case %))) items)))
 
-(defn- hard-check-6-supply-allowlist
-  "HARD CHECK 6: a :coordinate-supply-request must name at least one
+(defn- hard-check-7-supply-allowlist
+  "HARD CHECK 7: a :coordinate-supply-request must name at least one
    recognized non-content consumable, and every named item must be in the
    closed consumable set. Applies only to :coordinate-supply-request; all
    other ops pass trivially.
@@ -278,6 +338,7 @@
         :else
         {:pass? true :reason "supply-consumables-allowed"}))))
 
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -287,10 +348,12 @@
         check3 (hard-check-3-scope-exclusion proposal)
         check4 (hard-check-4-proctor-impartiality proposal)
         check5 (hard-check-5-accommodation-logistics proposal)
-        check6 (hard-check-6-supply-allowlist proposal)
-        checks [check1 check2 check3 check4 check5 check6]
+        check6 (hard-check-6-test-taker-enrollment store proposal)
+        check7 (hard-check-7-supply-allowlist proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
-                       (:pass? check4) (:pass? check5) (:pass? check6))
+                       (:pass? check4) (:pass? check5) (:pass? check6)
+                       (:pass? check7))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

@@ -228,9 +228,11 @@
       (is (= "scope-excluded" (:reason result))))))
 
 (deftest test-attendance-note-phase3-auto-commit
-  ;; :log-attendance-note is only unlocked at Phase 3 and auto-commits.
+  ;; :log-attendance-note is only unlocked at Phase 3 and auto-commits -- but
+  ;; only test-takers enrolled on the session roster (HARD CHECK 6).
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/roster #{"s001" "s002" "s003"}})
     (let [operation (op/make-operation :log-attendance-note "sess-001"
                                         {:check-in ["s001" "s002"] :absent ["s003"]})
           result (op/execute-operation operation s 3)]
@@ -409,9 +411,11 @@
 ;; rejected by the governor rather than auto-committed.
 
 (deftest test-accommodation-op-phase2-held
-  ;; Phase 2 gates :coordinate-accommodation-logistics (approval-gated).
+  ;; Phase 2 gates :coordinate-accommodation-logistics (approval-gated). The
+  ;; op names a test-taker who is enrolled on the session roster (HARD 6).
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/roster #{"T. Nakagawa"}})
     (let [operation (op/make-operation :coordinate-accommodation-logistics "sess-001"
                                         {:accommodations [:time-extension :alternate-format]
                                          :test-taker "T. Nakagawa"})
@@ -429,11 +433,14 @@
       (is (= "operation-not-allowed-in-phase" (:reason result))))))
 
 (deftest test-accommodation-auto-commits-phase3
-  ;; Phase 3 auto-commits clean accommodation logistics proposals.
+  ;; Phase 3 auto-commits clean accommodation logistics proposals: recognized
+  ;; categories (HARD 5) AND an enrolled test-taker (HARD 6).
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/roster #{"T. Nakagawa"}})
     (let [operation (op/make-operation :coordinate-accommodation-logistics "sess-001"
-                                        {:accommodations [:reader/scribe :accessible-room]})
+                                        {:accommodations [:reader/scribe :accessible-room]
+                                         :test-taker "T. Nakagawa"})
           result (op/execute-operation operation s 3)]
       (is (= :auto-committed (:status result))))))
 
@@ -483,15 +490,18 @@
       (is (= "scope-excluded" (:reason result))))))
 
 (deftest test-hard-check-5-clean-accommodation-passes
-  ;; A clean logistics-only accommodation with a recognized category passes.
+  ;; A clean logistics-only accommodation -- recognized category AND an
+  ;; enrolled test-taker (HARD 6) -- passes.
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/roster #{"T. Nakagawa"}})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
                     :testadmn.proposal/type :coordinate-accommodation-logistics
                     :testadmn.proposal/proposal-data
-                    {:accommodations [:time-extension :reader/scribe]}}
+                    {:accommodations [:time-extension :reader/scribe]
+                     :test-taker "T. Nakagawa"}}
           result (gov/evaluate-proposal s proposal)]
       (is (true? (:accepted? result)))
       (is (= "all-checks-pass" (:reason result))))))
@@ -507,8 +517,130 @@
           result (op/execute-operation operation s 3)]
       (is (= :rejected (:status result)))
       (is (= "scope-excluded" (:reason result))))))
+;; === Test-Taker Enrollment Binding (HARD CHECK 6) ===
+;; Test administration must log attendance for -- and arrange accommodations
+;; for -- only people actually registered to sit THAT session. A roster-less
+;; session or a proposal naming an un-enrolled id is rejected outright, never
+;; auto-committed at Phase 3 (anti-impersonation / anti-proxy-testing).
 
-;; === Bounded Supply-Consumable Allowlist (HARD CHECK 6) ===
+(deftest test-hard-check-6-attendance-missing-test-taker-rejected
+  ;; An attendance note that names no test-taker id is invalid outright.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/roster #{"s001" "s002"}})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :log-attendance-note
+                    :testadmn.proposal/proposal-data {}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (false? (:accepted? result)))
+      (is (= "attendance-missing-test-taker" (:reason result))))))
+
+(deftest test-hard-check-6-unenrolled-test-taker-rejected
+  ;; Naming a test-taker who is NOT on the session roster is the proxy-testing
+  ;; hole: a fabricated person logging check-in must be blocked at the governor,
+  ;; never reaching Phase 3 auto-commit.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/roster #{"s001" "s002"}})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :log-attendance-note
+                    :testadmn.proposal/proposal-data {:check-in ["s001" "imposter-99"]}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (false? (:accepted? result)))
+      (is (= "test-taker-not-enrolled" (:reason result))))))
+
+(deftest test-hard-check-6-roster-less-session-rejected
+  ;; A session that carries no roster has an empty enrolled set, so even a
+  ;; clean-looking attendance note fails -- you cannot log anyone without a
+  ;; declared, verifiable roster of who is actually registered.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})  ;; no :roster
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :log-attendance-note
+                    :testadmn.proposal/proposal-data {:check-in ["s001"]}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (false? (:accepted? result)))
+      (is (= "test-taker-not-enrolled" (:reason result))))))
+
+(deftest test-hard-check-6-all-enrolled-passes
+  ;; Clean attendance against a full-covering roster passes HARD CHECK 6.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/roster #{"s001" "s002" "s003"}})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :log-attendance-note
+                    :testadmn.proposal/proposal-data {:check-in ["s001"] :absent ["s002" "s003"]}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (true? (:accepted? result)))
+      (is (= "all-checks-pass" (:reason result))))))
+
+(deftest test-hard-check-6-accommodation-binds-enrolled-test-taker
+  ;; An accommodation for an unregistered test-taker is a silent access grant
+  ;; to a non-participant and must be rejected: only enrolled roster members
+  ;; may receive accessibility logistics.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/roster #{"T. Nakagawa"}})
+    (let [bad {:testadmn.proposal/id "p1"
+               :testadmn.proposal/target-session-id "sess-001"
+               :testadmn.proposal/effect :propose
+               :testadmn.proposal/type :coordinate-accommodation-logistics
+               :testadmn.proposal/proposal-data
+               {:accommodations [:time-extension] :test-taker "X. Forsythe"}}
+          good {:testadmn.proposal/id "p2"
+                :testadmn.proposal/target-session-id "sess-001"
+                :testadmn.proposal/effect :propose
+                :testadmn.proposal/type :coordinate-accommodation-logistics
+                :testadmn.proposal/proposal-data
+                {:accommodations [:time-extension] :test-taker "T. Nakagawa"}}]
+      (is (false? (:accepted? (gov/evaluate-proposal s bad))))
+      (is (= "test-taker-not-enrolled" (:reason (gov/evaluate-proposal s bad))))
+      (is (true? (:accepted? (gov/evaluate-proposal s good)))))))
+
+(deftest test-hard-check-6-non-binding-ops-unaffected
+  ;; HARD CHECK 6 only governs attendance and accommodation; scheduling and
+  ;; other ops pass the check trivially even on a roster-less session.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :schedule-test-session
+                    :testadmn.proposal/proposal-data {:room "Gym A"}}
+          check6 (-> (gov/evaluate-proposal s proposal) :checks last)]
+      (is (true? (:pass? check6))))))
+
+(deftest test-unenrolled-attendance-never-auto-commits-phase3
+  ;; End to end: an attendance note naming an un-enrolled test-taker at Phase 3
+  ;; is rejected by the governor and never auto-committed.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/roster #{"s001"}})
+    (let [operation (op/make-operation :log-attendance-note "sess-001"
+                                        {:check-in ["s001" "imposter-99"]})
+          result (op/execute-operation operation s 3)]
+      (is (= :rejected (:status result)))
+      (is (= "test-taker-not-enrolled" (:reason result))))))
+
+(deftest test-enrolled-attendance-auto-commits-phase3
+  ;; Fully-enrolled attendance still auto-commits at Phase 3.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/roster #{"s001" "s002"}})
+    (let [operation (op/make-operation :log-attendance-note "sess-001"
+                                        {:check-in ["s001"] :absent ["s002"]})
+          result (op/execute-operation operation s 3)]
+      (is (= :auto-committed (:status result))))))
+
+;; === Bounded Supply-Consumable Allowlist (HARD CHECK 7) ===
 ;; The allowlist schedules :coordinate-supply-request from Phase 2 and
 ;; auto-commits clean proposals at Phase 3, but generic scope-exclusion
 ;; (HARD CHECK 3) only blocks content-bearing TERMS — it does not bound WHICH
@@ -516,7 +648,7 @@
 ;; supply request must be rejected by the governor rather than auto-committed
 ;; at Phase 3.
 
-(deftest test-hard-check-6-supply-missing-items-rejected
+(deftest test-hard-check-7-supply-missing-items-rejected
   ;; A supply request naming no items is invalid outright.
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001" {})
@@ -529,7 +661,7 @@
       (is (false? (:accepted? result)))
       (is (= "supply-missing-items" (:reason result))))))
 
-(deftest test-hard-check-6-supply-unrecognized-consumable-rejected
+(deftest test-hard-check-7-supply-unrecognized-consumable-rejected
   ;; An item outside the closed consumable set (no content-bearing term, so
   ;; generic scope-exclusion lets it through) must be rejected outright.
   (let [s (store/new-mem-store)]
@@ -544,8 +676,8 @@
       (is (false? (:accepted? result)))
       (is (= "supply-unrecognized-consumable" (:reason result))))))
 
-(deftest test-hard-check-6-clean-supply-passes
-  ;; Only recognized non-content consumables pass HARD CHECK 6.
+(deftest test-hard-check-7-clean-supply-passes
+  ;; Only recognized non-content consumables pass HARD CHECK 7.
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001" {})
     (let [proposal {:testadmn.proposal/id "p1"
@@ -558,8 +690,8 @@
       (is (true? (:accepted? result)))
       (is (= "all-checks-pass" (:reason result))))))
 
-(deftest test-hard-check-6-non-supply-ops-unaffected
-  ;; HARD CHECK 6 only governs :coordinate-supply-request; others pass trivially.
+(deftest test-hard-check-7-non-supply-ops-unaffected
+  ;; HARD CHECK 7 only governs :coordinate-supply-request; others pass trivially.
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001" {})
     (let [proposal {:testadmn.proposal/id "p1"
