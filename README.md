@@ -11,18 +11,19 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Five HARD, permanent, un-overridable checks
+- `testadmn.governor` — Six HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Five HARD Checks
+## Governor: Six HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
 3. **Scope exclusion** — test-content, answer-keys, grading, eligibility, academic-integrity adjudication, or safety-authority overrides are blocked. Legitimate `:flag-safety-concern` escalates only, never auto-commits.
 4. **Proctor impartiality** — a `:coordinate-proctor-assignment-proposal` must not name a proctor declared non-impartial (teaching/related to a registered test-taker of the session). A conflicted proctor is rejected outright, never held and never auto-committed at Phase 3.
 5. **Accessibility accommodation is logistics-only** — a `:coordinate-accommodation-logistics` proposal must declare at least one recognized accommodation category (`:time-extension`, `:reader/scribe`, `:accessible-room`, `:alternate-format`, `:assistive-tech`) and must not carry any test-content, grading, eligibility, or policy change. An accommodation arranges HOW a test-taker accesses a session, never WHAT is judged. A category-less, unknown-category, or content-bearing accommodation is rejected outright, never auto-committed at Phase 3.
+6. **Bounded supply-consumable allowlist** — a `:coordinate-supply-request` must name at least one recognized non-content consumable (answer sheets, pencils, scratch paper, erasers, timers, etc.) and must not name any unrecognized item. Scope-exclusion (check 3) only blocks content-bearing terms, so without this check an arbitrary unsanctioned consumable would pass and auto-commit at Phase 3. A missing-item or unrecognized-item supply request is rejected outright, never held and never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
@@ -51,6 +52,14 @@ content-bearing payload):
 
 ```clojure
 {:accommodations [:time-extension :alternate-format]}
+```
+
+Supply request proposal shape (`:supplies` carries item strings from the
+closed non-content consumable set; the governor rejects missing or
+unrecognized items and any content-bearing payload):
+
+```clojure
+{:supplies ["answer-sheets" "pencils" "scratch-paper"]}
 ```
 
 ## Staged Phases

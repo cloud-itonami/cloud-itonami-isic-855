@@ -507,3 +507,85 @@
           result (op/execute-operation operation s 3)]
       (is (= :rejected (:status result)))
       (is (= "scope-excluded" (:reason result))))))
+
+;; === Bounded Supply-Consumable Allowlist (HARD CHECK 6) ===
+;; The allowlist schedules :coordinate-supply-request from Phase 2 and
+;; auto-commits clean proposals at Phase 3, but generic scope-exclusion
+;; (HARD CHECK 3) only blocks content-bearing TERMS — it does not bound WHICH
+;; non-content consumables a request may order. An unrecognized or empty
+;; supply request must be rejected by the governor rather than auto-committed
+;; at Phase 3.
+
+(deftest test-hard-check-6-supply-missing-items-rejected
+  ;; A supply request naming no items is invalid outright.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :coordinate-supply-request
+                    :testadmn.proposal/proposal-data {}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (false? (:accepted? result)))
+      (is (= "supply-missing-items" (:reason result))))))
+
+(deftest test-hard-check-6-supply-unrecognized-consumable-rejected
+  ;; An item outside the closed consumable set (no content-bearing term, so
+  ;; generic scope-exclusion lets it through) must be rejected outright.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :coordinate-supply-request
+                    :testadmn.proposal/proposal-data
+                    {:supplies ["answer-sheets" "surveillance-cameras"]}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (false? (:accepted? result)))
+      (is (= "supply-unrecognized-consumable" (:reason result))))))
+
+(deftest test-hard-check-6-clean-supply-passes
+  ;; Only recognized non-content consumables pass HARD CHECK 6.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :coordinate-supply-request
+                    :testadmn.proposal/proposal-data
+                    {:supplies ["answer-sheets" "pencils" "scratch-paper"]}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (true? (:accepted? result)))
+      (is (= "all-checks-pass" (:reason result))))))
+
+(deftest test-hard-check-6-non-supply-ops-unaffected
+  ;; HARD CHECK 6 only governs :coordinate-supply-request; others pass trivially.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :schedule-test-session
+                    :testadmn.proposal/proposal-data {:room "Gym A"}}
+          check6 (-> (gov/evaluate-proposal s proposal) :checks last)]
+      (is (true? (:pass? check6))))))
+
+(deftest test-unrecognized-supply-never-auto-commits-phase3
+  ;; End to end: a Phase 3 supply request naming an unrecognized consumable is
+  ;; rejected and never auto-committed.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-supply-request "sess-001"
+                                        {:supplies ["answer-sheets" "smuggled-device"]})
+          result (op/execute-operation operation s 3)]
+      (is (= :rejected (:status result)))
+      (is (= "supply-unrecognized-consumable" (:reason result))))))
+
+(deftest test-clean-supply-auto-commits-phase3
+  ;; A supply request naming only recognized consumables still auto-commits.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-supply-request "sess-001"
+                                        {:supplies ["answer-sheets" "pencils"]})
+          result (op/execute-operation operation s 3)]
+      (is (= :auto-committed (:status result))))))
