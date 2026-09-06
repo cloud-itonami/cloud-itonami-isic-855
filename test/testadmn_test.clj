@@ -228,9 +228,12 @@
       (is (= "scope-excluded" (:reason result))))))
 
 (deftest test-attendance-note-phase3-auto-commit
-  ;; :log-attendance-note is only unlocked at Phase 3 and auto-commits.
+  ;; :log-attendance-note is only unlocked at Phase 3 and auto-commits. With
+  ;; HARD CHECK 7 the session must carry an enrolled-test-taker roster so the
+  ;; note can only name test-takers registered for the verified target session.
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/test-takers #{"s001" "s002" "s003"}})
     (let [operation (op/make-operation :log-attendance-note "sess-001"
                                         {:check-in ["s001" "s002"] :absent ["s003"]})
           result (op/execute-operation operation s 3)]
@@ -245,6 +248,69 @@
           result (op/execute-operation operation s 2)]
       (is (= :rejected (:status result)))
       (is (= "operation-not-allowed-in-phase" (:reason result))))))
+
+;; === Attendance-Note Roster Binding (op + HARD CHECK 7) ===
+;; ISIC-855 logs who actually attended a verified test session. The allowlist
+;; auto-commits clean :log-attendance-note proposals at Phase 3, so an
+;; attendance note that names a test-taker NOT enrolled in the target session
+;; (or names nobody at all) MUST be rejected by the governor rather than
+;; auto-committed. A check-in/absent note is a logistics record, but only of
+;; test-takers registered for THAT session -- never a fabricated or
+;; out-of-roster identity.
+
+(deftest test-hard-check-7-attendance-requires-enrolled-roster
+  ;; A check-in must not auto-commit for a test-taker who is not in the target
+  ;; session's enrolled roster.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/test-takers #{"tt-001" "tt-002"}})
+    (let [operation (op/make-operation :log-attendance-note "sess-001"
+                                        {:check-in ["tt-001" "intruder-9"]})
+          result (op/execute-operation operation s 3)]
+      (is (= :rejected (:status result)))
+      (is (= "attendance-unknown-test-taker" (:reason result))))))
+
+(deftest test-hard-check-7-attendance-rejects-empty-note
+  ;; An attendance note naming no test-taker is rejected outright.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/test-takers #{"tt-001"}})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :log-attendance-note
+                    :testadmn.proposal/proposal-data {:check-in [] :absent []}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (false? (:accepted? result)))
+      (is (= "attendance-empty" (:reason result))))))
+
+(deftest test-hard-check-7-attendance-clean-note-passes
+  ;; A check-in/absent note naming only enrolled test-takers passes.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/test-takers #{"tt-001" "tt-002" "tt-003"}})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :log-attendance-note
+                    :testadmn.proposal/proposal-data
+                    {:check-in ["tt-001" "tt-002"] :absent ["tt-003"]}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (true? (:accepted? result)))
+      (is (= "all-checks-pass" (:reason result))))))
+
+(deftest test-hard-check-7-non-attendance-ops-unaffected
+  ;; HARD CHECK 7 only governs :log-attendance-note; other ops (e.g. a supply
+  ;; request) pass check7 trivially even with no roster on the session.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :coordinate-supply-request
+                    :testadmn.proposal/proposal-data {:supplies ["answer-sheets"]}}
+          check7 (-> (gov/evaluate-proposal s proposal) :checks last)]
+      (is (true? (:pass? check7))))))
 
 ;; === Integration Tests ===
 

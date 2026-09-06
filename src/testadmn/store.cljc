@@ -25,6 +25,13 @@
 (s/def :testadmn.test-session/verified? boolean?)
 (s/def :testadmn.test-session/scheduled-start #?(:clj inst? :cljs string?))
 (s/def :testadmn.test-session/facility-id string?)
+;; Closed set of test-taker ids enrolled in a session (roster ground truth).
+;; HARD CHECK 7 binds :log-attendance-note test-taker payloads to this set so a
+;; check-in/absent note can only name test-takers registered for the verified
+;; target session -- never a fabricated or out-of-roster identity.
+(s/def :testadmn.test-session/test-takers (s/coll-of string? :kind set?))
+(defn enrolled-test-takers [session]
+  (:testadmn.test-session/test-takers session #{}))
 
 (s/def :testadmn/test-session
   (s/keys :req [:testadmn.test-session/id
@@ -104,6 +111,8 @@
 
 (def ^:private schema
   {:testadmn.test-session/id {:db/unique :db.unique/identity}
+   :testadmn.test-session/test-takers {:db/valueType :db.type/string
+                                       :db/cardinality :db.cardinality/many}
    :proposal-log/seq         {:db/unique :db.unique/identity}})
 
 (defn- enc [v] (pr-str v))
@@ -112,7 +121,8 @@
 (def ^:private session-pull
   [:testadmn.test-session/id :testadmn.test-session/name
    :testadmn.test-session/registered? :testadmn.test-session/verified?
-   :testadmn.test-session/scheduled-start :testadmn.test-session/facility-id])
+   :testadmn.test-session/scheduled-start :testadmn.test-session/facility-id
+   :testadmn.test-session/test-takers])
 
 (defn- prune-nils [m] (into {} (remove (comp nil? val) m)))
 
@@ -174,7 +184,8 @@
   [{:testadmn.test-session/id "session-001"
     :testadmn.test-session/name "SAT Administration 2026-07-15"
     :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
-    :testadmn.test-session/facility-id "facility-101"}
+    :testadmn.test-session/facility-id "facility-101"
+    :testadmn.test-session/test-takers #{"tt-001" "tt-002" "tt-003"}}
    {:testadmn.test-session/id "session-002"
     :testadmn.test-session/name "ACT Administration 2026-07-22"
     :testadmn.test-session/scheduled-start "2026-07-22T09:00:00Z"

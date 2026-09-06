@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Six HARD, permanent, un-overridable checks
+;; Seven HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -9,7 +9,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Six HARD checks (un-overridable):
+   Seven HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -40,8 +40,13 @@
       etc.). Generic scope-exclusion (check 3) only blocks content-bearing
       TERMS; it does not bound WHICH non-content consumables a request may
       order. An unrecognized or empty supply request is rejected outright
-      instead of being auto-committed at Phase 3, because auto-commit must not
-      let a logistics channel silently order an unsanctioned consumable.")
+      instead of being auto-committed at Phase 3, because auto-commit must
+      not let a logistics channel silently order an unsanctioned consumable.
+   7. Attendance-note roster binding — a :log-attendance-note must name at
+      least one test-taker id and every id must be in the target session's
+      enrolled-test-taker roster. An out-of-roster or empty note is rejected
+      outright, never held, never auto-committed at
+      Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -278,6 +283,54 @@
         :else
         {:pass? true :reason "supply-consumables-allowed"}))))
 
+;; === Attendance-Note Roster Binding (HARD CHECK 7) ===
+;; ISIC-855 test administration logs who actually checked in / was absent for
+;; a verified test session. The allowlist unlocks :log-attendance-note (and
+;; auto-commits clean proposals) at Phase 3. Generic scope-exclusion (HARD
+;; CHECK 3) only blocks content/grading/eligibility TERMS; it does not bound
+;; WHICH test-taker a check-in/absent note may name. An attendance note naming
+;; a test-taker who is not enrolled in the verified target session (or naming
+;; nobody at all) would otherwise pass check 3 and auto-commit at Phase 3.
+;; HARD CHECK 7 closes that: every :log-attendance-note must name at least one
+;; test-taker id, and every id must be in the target session's enrolled-taker
+;; roster. A note naming an out-of-roster (or fabricated) test-taker -- or none
+;; -- is rejected outright, never held, never auto-committed at Phase 3.
+
+(def ^:private attendance-fields
+  ;; the payload keys a :log-attendance-note uses to name test-takers.
+  [:check-in :absent])
+
+(defn- attendance-test-taker-ids
+  "Normalize an attendance-note proposal to its list of named test-taker ids."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})]
+    (->> attendance-fields
+         (mapcat #(get data %))
+         (filter string?)
+         distinct
+         vec)))
+
+(defn- hard-check-7-attendance-roster
+  "HARD CHECK 7: a :log-attendance-note must name at least one test-taker id
+   and every named id must be in the target session's enrolled roster.
+   Applies only to :log-attendance-note; all other ops pass trivially."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :log-attendance-note)
+      {:pass? true :reason "not-an-attendance-note"}
+      (let [session (store/lookup-session store (:testadmn.proposal/target-session-id proposal))
+            roster (store/enrolled-test-takers session)
+            ids (attendance-test-taker-ids proposal)
+            unknown (into [] (remove roster) ids)]
+        (cond
+          (empty? ids)
+          {:pass? false :reason "attendance-empty" :proposal proposal}
+          (seq unknown)
+          {:pass? false :reason "attendance-unknown-test-taker"
+           :test-takers unknown}
+          :else
+          {:pass? true :reason "attendance-test-takers-enrolled"})))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -288,9 +341,11 @@
         check4 (hard-check-4-proctor-impartiality proposal)
         check5 (hard-check-5-accommodation-logistics proposal)
         check6 (hard-check-6-supply-allowlist proposal)
-        checks [check1 check2 check3 check4 check5 check6]
+        check7 (hard-check-7-attendance-roster store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
-                       (:pass? check4) (:pass? check5) (:pass? check6))
+                       (:pass? check4) (:pass? check5) (:pass? check6)
+                       (:pass? check7))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
