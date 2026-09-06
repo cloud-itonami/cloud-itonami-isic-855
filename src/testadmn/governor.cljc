@@ -9,7 +9,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Seven HARD checks (un-overridable):
+   Eight HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -46,7 +46,13 @@
       least one test-taker id and every id must be in the target session's
       enrolled-test-taker roster. An out-of-roster or empty note is rejected
       outright, never held, never auto-committed at
-      Phase 3.")
+      Phase 3.
+   8. Facility slot is free — a :schedule-test-session must NOT place the
+      verified target session into a facility that is ALREADY OCCUPIED at the
+      same scheduled-start by another registered session. A single-session
+      lookup cannot see a double-booking; only a store-wide view can. A
+      schedule that would seat two exams in one facility at the same start is
+      rejected outright, never held, never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -331,6 +337,61 @@
           :else
           {:pass? true :reason "attendance-test-takers-enrolled"})))))
 
+;; === Facility Slot Conflict (HARD CHECK 8) ===
+;; ISIC-855 test administration schedules rooms/facilities for standardized
+;; test sessions. Scheduling (and Phase 3 auto-commit) already gate a
+;; :schedule-test-session on the session being registered/verified (check 1),
+;; effect being :propose (check 2) and scope (check 3) — but none of those see
+;; OTHER sessions. A second session could be placed into a facility slot that a
+;; previously scheduled session already occupies at the same start time,
+;; seating two exams in one room. Only a store-wide view can catch that. HARD
+;; CHECK 8 closes it: the verified target session's scheduled-start must not
+;; collide with another (different) registered session that occupies the SAME
+;; facility-id at the same scheduled-start. A colliding schedule is rejected
+;; outright, never held, never auto-committed at Phase 3. Sessions that do not
+;; carry a :facility-id (unverified/registration-only rows) can't seat an exam
+;; and are ignored — a collision can only be between sessions that both name a
+;; facility (a real seating plan).
+
+(defn- facility-slot-key
+  "A session's facility slot = [facility-id scheduled-start]; nil if the
+   session has no facility-id (registration-only rows seat nothing)."
+  [session]
+  (let [fid (:testadmn.test-session/facility-id session)
+        t0  (:testadmn.test-session/scheduled-start session)]
+    (when (and fid t0)
+      [fid t0])))
+
+(defn- hard-check-8-facility-slot-free
+  "HARD CHECK 8: a :schedule-test-session must not double-book a facility slot
+   already occupied by another registered session at the same scheduled-start.
+   Applies only to :schedule-test-session; all other ops pass trivially."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [target (store/lookup-session store target-session-id)
+            target-slot (facility-slot-key target)
+            clashes (filter (fn [other]
+                              (and (not= (:testadmn.test-session/id other) target-session-id)
+                                   (:testadmn.test-session/registered? other)
+                                   (= (facility-slot-key other) target-slot)))
+                            (store/all-sessions store))
+            clash (first clashes)]
+        (cond
+          (nil? target-slot)
+          ;; target session carries no facility slot — nothing to double-book;
+          ;; a schedule for such a session has no seating plan to protect.
+          {:pass? true :reason "facility-slot-unspecified"}
+          clash
+          {:pass? false
+           :reason "facility-slot-double-booked"
+           :facility (first target-slot)
+           :scheduled-start (second target-slot)
+           :conflicts-with (:testadmn.test-session/id clash)}
+          :else
+          {:pass? true :reason "facility-slot-free"})))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -342,10 +403,11 @@
         check5 (hard-check-5-accommodation-logistics proposal)
         check6 (hard-check-6-supply-allowlist proposal)
         check7 (hard-check-7-attendance-roster store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7]
+        check8 (hard-check-8-facility-slot-free store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7))
+                       (:pass? check7) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

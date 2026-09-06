@@ -358,6 +358,13 @@
         (is (false? (:testadmn.test-session/verified? session)))))
     (testing (str label ": lookup-session on a nonexistent id returns nil")
       (is (nil? (store/lookup-session s "nonexistent"))))
+    (testing (str label ": all-sessions enumerates what was registered")
+      (is (= #{"sess-001"} (set (map :testadmn.test-session/id (store/all-sessions s)))))
+      (store/register-session! s "sess-010" (merge {:testadmn.test-session/name "Other"}
+                                                    {:testadmn.test-session/registered? true
+                                                     :testadmn.test-session/verified? false}))
+      (is (= #{"sess-001" "sess-010"}
+             (set (map :testadmn.test-session/id (store/all-sessions s))))))
     (testing (str label ": create-session! leaves a session unregistered")
       (store/create-session! s "sess-002" {})
       (let [session (store/lookup-session s "sess-002")]
@@ -655,3 +662,163 @@
                                         {:supplies ["answer-sheets" "pencils"]})
           result (op/execute-operation operation s 3)]
       (is (= :auto-committed (:status result))))))
+
+;; === Facility Slot Conflict (HARD CHECK 8) ===
+;; ISIC-855 test administration schedules rooms/facilities for standardized
+;; test sessions. The per-session checks (1/2/3) cannot see OTHER sessions, so
+;; without a store-wide view a second session could be placed into a facility
+;; slot already occupied by a previously scheduled session at the same start
+;; time — seating two exams in one room, and Phase 3 would auto-commit both.
+;; HARD CHECK 8 rejects any :schedule-test-session that would double-book an
+;; occupied facility slot (same facility-id AND same scheduled-start as a
+;; different registered session).
+
+(deftest test-hard-check-8-allows-first-session-in-free-facility
+  ;; A schedule for a session taking the FIRST slot in a facility passes.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "s1"
+      {:testadmn.test-session/name "SAT 1"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "s1"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :schedule-test-session
+                    :testadmn.proposal/proposal-data {:room "room-a"}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (true? (:accepted? result))))))
+
+(deftest test-hard-check-8-rejects-double-booked-facility-slot
+  ;; A schedule placing a second session into the SAME facility at the SAME
+  ;; start is rejected outright — the governor must not let Phase 3 auto-commit
+  ;; two exams in one room.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "s1"
+      {:testadmn.test-session/name "SAT 1"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (store/register-session! s "s2"
+      {:testadmn.test-session/name "ACT 2"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (let [result (gov/evaluate-proposal s
+                   {:testadmn.proposal/id "p2"
+                    :testadmn.proposal/target-session-id "s2"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :schedule-test-session
+                    :testadmn.proposal/proposal-data {:room "room-a"}})]
+      (is (false? (:accepted? result)))
+      (is (= "facility-slot-double-booked" (:reason result))))))
+
+(deftest test-hard-check-8-allows-different-facility-same-start
+  ;; The same start time in a DIFFERENT facility is not a conflict.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "s1"
+      {:testadmn.test-session/name "SAT 1"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (store/register-session! s "s2"
+      {:testadmn.test-session/name "ACT 2"
+       :testadmn.test-session/facility-id "room-b"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (let [result (gov/evaluate-proposal s
+                   {:testadmn.proposal/id "p2"
+                    :testadmn.proposal/target-session-id "s2"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :schedule-test-session
+                    :testadmn.proposal/proposal-data {:room "room-b"}})]
+      (is (true? (:accepted? result))))))
+
+(deftest test-hard-check-8-allows-same-facility-different-start
+  ;; Sequential sessions in the SAME facility at DIFFERENT starts are fine.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "s1"
+      {:testadmn.test-session/name "SAT 1"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (store/register-session! s "s2"
+      {:testadmn.test-session/name "ACT 2"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T13:00:00Z"})
+    (let [result (gov/evaluate-proposal s
+                   {:testadmn.proposal/id "p2"
+                    :testadmn.proposal/target-session-id "s2"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :schedule-test-session
+                    :testadmn.proposal/proposal-data {:room "room-a"}})]
+      (is (true? (:accepted? result))))))
+
+(deftest test-hard-check-8-only-governs-schedule-op
+  ;; HARD CHECK 8 only governs :schedule-test-session; a supply request for a
+  ;; session whose slot is already taken passes check8 trivially (the conflict
+  ;; concerns seating, not ordering supplies for an existing session).
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "s1"
+      {:testadmn.test-session/name "SAT 1"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (store/register-session! s "s2"
+      {:testadmn.test-session/name "ACT 2"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (let [proposal {:testadmn.proposal/id "p2"
+                    :testadmn.proposal/target-session-id "s2"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :coordinate-supply-request
+                    :testadmn.proposal/proposal-data {:supplies ["answer-sheets"]}}
+          check8 (-> (gov/evaluate-proposal s proposal) :checks last)]
+      (is (true? (:pass? check8))))))
+
+(deftest test-double-booked-schedule-never-auto-commits-phase3
+  ;; End to end: at Phase 3 a schedule that would double-book an occupied
+  ;; facility is rejected by the governor and never auto-committed.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "s1"
+      {:testadmn.test-session/name "SAT 1"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (store/register-session! s "s2"
+      {:testadmn.test-session/name "ACT 2"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (let [operation (op/make-operation :schedule-test-session "s2" {:room "room-a"})
+          result (op/execute-operation operation s 3)]
+      (is (= :rejected (:status result)))
+      (is (= "facility-slot-double-booked" (:reason result))))))
+
+(deftest test-clean-schedule-still-auto-commits-phase3
+  ;; A schedule taking a genuinely free facility slot still auto-commits.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "s1"
+      {:testadmn.test-session/name "SAT 1"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (store/register-session! s "s2"
+      {:testadmn.test-session/name "ACT 2"
+       :testadmn.test-session/facility-id "room-b"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (let [operation (op/make-operation :schedule-test-session "s2" {:room "room-b"})
+          result (op/execute-operation operation s 3)]
+      (is (= :auto-committed (:status result))))))
+
+(deftest test-hard-check-8-matches-mem-and-datomic
+  ;; The double-booking guard behaves identically on both backends
+  ;; (MemStore and DatomicStore share the protocol).
+  (doseq [[label s] (backends)]
+    (store/register-session! s "s1"
+      {:testadmn.test-session/name "SAT 1"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (store/register-session! s "s2"
+      {:testadmn.test-session/name "ACT 2"
+       :testadmn.test-session/facility-id "room-a"
+       :testadmn.test-session/scheduled-start "2026-09-01T09:00:00Z"})
+    (testing (str label ": double-book rejected")
+      (let [result (gov/evaluate-proposal s
+                     {:testadmn.proposal/id "p2"
+                      :testadmn.proposal/target-session-id "s2"
+                      :testadmn.proposal/effect :propose
+                      :testadmn.proposal/type :schedule-test-session
+                      :testadmn.proposal/proposal-data {:room "room-a"}})]
+        (is (false? (:accepted? result)))
+        (is (= "facility-slot-double-booked" (:reason result)))))))

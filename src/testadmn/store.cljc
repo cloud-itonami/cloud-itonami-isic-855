@@ -58,6 +58,7 @@
 (defprotocol TestAdmnStore
   "Store interface for test administration operations."
   (lookup-session [store session-id])
+  (all-sessions [store] "Every session record the store currently holds.")
   (register-session! [store session-id session-data])
   (create-session! [store session-id session-data]
     "Create a session record with EXPLICIT :registered?/:verified? flags
@@ -76,6 +77,8 @@
   TestAdmnStore
   (lookup-session [_this session-id]
     (@sessions-atom session-id))
+  (all-sessions [_this]
+    (vals @sessions-atom))
   (register-session! [_this session-id session-data]
     (swap! sessions-atom assoc session-id
       (merge session-data
@@ -131,6 +134,14 @@
   (lookup-session [_this session-id]
     (let [m (prune-nils (d/pull (d/db conn) session-pull [:testadmn.test-session/id session-id]))]
       (when (:testadmn.test-session/id m) m)))
+  (all-sessions [_this]
+    (->> (d/q '[:find ?e :where
+                [?e :testadmn.test-session/id _]]
+              (d/db conn))
+         (sort-by first)
+         (keep (fn [[e]]
+                 (let [m (prune-nils (d/pull (d/db conn) session-pull e))]
+                   (when (:testadmn.test-session/id m) m))))))
   (register-session! [_this session-id session-data]
     (d/transact! conn [(merge session-data
                               {:testadmn.test-session/id session-id
@@ -161,17 +172,17 @@
 ;; `testadmn.render-html` renders REAL store state instead of hand-typed
 ;; rows. `session-001`'s field values are carried over verbatim from this
 ;; repo's own pre-existing demo driver `testadmn.sim/simulate-session`
-;; (name "SAT Administration 2026-07-15", scheduled-start
-;; "2026-07-15T09:00:00Z", facility "facility-101"); the remaining entries
+;; (name \"SAT Administration 2026-07-15\", scheduled-start
+;; \"2026-07-15T09:00:00Z\", facility \"facility-101\"); the remaining entries
 ;; exist to make each of `governor`'s three HARD checks reachable against
 ;; real ground-truth store state rather than a synthetic proposal:
 ;;
 ;;   session-002  registered   -- clean target for scope-exclusion / effect holds
 ;;   session-003  UNregistered -- created via `create-session!`, the entry point
 ;;                               whose docstring above exists precisely so
-;;                               `hard-check-1`'s "session-not-registered" branch
+;;                               `hard-check-1`'s \"session-not-registered\" branch
 ;;                               is reachable through the public API
-;;   session-009  ABSENT       -- deliberately never seeded, so "session-not-found"
+;;   session-009  ABSENT       -- deliberately never seeded, so \"session-not-found\"
 ;;                               is exercised by a genuinely missing record and
 ;;                               not by a fabricated one
 ;;
