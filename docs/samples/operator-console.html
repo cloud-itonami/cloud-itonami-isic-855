@@ -2486,6 +2486,7 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
     <table>
       <thead><tr><th>Operation</th><th>Phase 0</th><th>Phase 1</th><th>Phase 2</th><th>Phase 3</th></tr></thead>
       <tbody>
+        <tr><td><code>:coordinate-accommodation-logistics</code></td><td><span class="muted">blocked</span></td><td><span class="muted">blocked</span></td><td><span class="warn">approval</span></td><td><span class="ok">auto-commit</span></td></tr>
         <tr><td><code>:coordinate-proctor-assignment-proposal</code></td><td><span class="muted">blocked</span></td><td><span class="muted">blocked</span></td><td><span class="warn">approval</span></td><td><span class="ok">auto-commit</span></td></tr>
         <tr><td><code>:coordinate-supply-request</code></td><td><span class="muted">blocked</span></td><td><span class="muted">blocked</span></td><td><span class="warn">approval</span></td><td><span class="ok">auto-commit</span></td></tr>
         <tr><td><code>:flag-safety-concern</code></td><td><span class="muted">blocked</span></td><td><span class="warn">escalates</span></td><td><span class="warn">escalates</span></td><td><span class="warn">escalates</span></td></tr>
@@ -2496,10 +2497,12 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
   </section>
   <section class="card">
     <h2>Governor HARD holds (this run)</h2>
-    <p class="muted">6 proposals were stopped by the governor and never reached a human. These are un-overridable: the reason shown is taken from the failing entry of the governor&rsquo;s own <code>:checks</code> vector. Rows are identified as governor holds structurally &mdash; only the governor branch of <code>execute-operation</code> attaches <code>:checks</code> &mdash; so a phase-gate block is never miscounted as a HARD hold.</p>
+    <p class="muted">8 proposals were stopped by the governor and never reached a human. These are un-overridable: the reason shown is taken from the failing entry of the governor&rsquo;s own <code>:checks</code> vector. Rows are identified as governor holds structurally &mdash; only the governor branch of <code>execute-operation</code> attaches <code>:checks</code> &mdash; so a phase-gate block is never miscounted as a HARD hold.</p>
     <table>
       <thead><tr><th>#</th><th>Operation</th><th>Session</th><th>Proposal payload</th><th>Failed HARD check</th><th>Kept by store?</th></tr></thead>
       <tbody>
+        <tr><td>5</td><td><code>:coordinate-supply-request</code></td><td><code>session-001</code></td><td>:answer-sheets 250<br>:pencils 300</td><td><code>supply-missing-items</code></td><td><span class="critical">not retained</span> <span class="muted">(run result only &mdash; the store kept no record)</span></td></tr>
+        <tr><td>6</td><td><code>:log-attendance-note</code></td><td><code>session-001</code></td><td>:absent 6<br>:checked-in 218</td><td><code>attendance-missing-test-taker</code></td><td><span class="critical">not retained</span> <span class="muted">(run result only &mdash; the store kept no record)</span></td></tr>
         <tr><td>9</td><td><code>:schedule-test-session</code></td><td><code>session-002</code></td><td>:test-content "swap in revised section 3 items"</td><td><code>scope-excluded</code></td><td><span class="critical">not retained</span> <span class="muted">(run result only &mdash; the store kept no record)</span></td></tr>
         <tr><td>10</td><td><code>:coordinate-supply-request</code></td><td><code>session-002</code></td><td>:answer-key "requested for post-session review"</td><td><code>scope-excluded</code></td><td><span class="critical">not retained</span> <span class="muted">(run result only &mdash; the store kept no record)</span></td></tr>
         <tr><td>11</td><td><code>:log-attendance-note</code></td><td><code>session-002</code></td><td>:eligibility "confirm candidate is eligible for accommodation"</td><td><code>scope-excluded</code></td><td><span class="critical">not retained</span> <span class="muted">(run result only &mdash; the store kept no record)</span></td></tr>
@@ -2508,7 +2511,7 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
         <tr><td>14</td><td><code>:schedule-test-session</code></td><td><code>session-009</code></td><td>:proctors 2<br>:room "Annex D"</td><td><code>session-not-found</code></td><td><span class="critical">not retained</span> <span class="muted">(run result only &mdash; the store kept no record)</span></td></tr>
       </tbody>
     </table>
-    <p class="muted"><strong>Retention gap:</strong> 6 of these 6 HARD holds left no record in the store. <code>operation/execute-operation</code> returns <code>{:status :rejected}</code> without calling <code>store/log-proposal!</code>; <code>governor/reject-proposal</code> would log a <code>:rollback</code> record carrying <code>:_rejected-reason</code>, but nothing calls it. The holds above are therefore joined from the live run result, not from the audit ledger &mdash; a reader of the ledger alone could not tell &ldquo;nothing was ever blocked&rdquo; from &ldquo;blocks happened and were dropped&rdquo;. This paragraph is derived per-hold by looking each proposal id up in the ledger, so it corrects itself once those rejections are logged.</p>
+    <p class="muted"><strong>Retention gap:</strong> 8 of these 8 HARD holds left no record in the store. <code>operation/execute-operation</code> returns <code>{:status :rejected}</code> without calling <code>store/log-proposal!</code>; <code>governor/reject-proposal</code> would log a <code>:rollback</code> record carrying <code>:_rejected-reason</code>, but nothing calls it. The holds above are therefore joined from the live run result, not from the audit ledger &mdash; a reader of the ledger alone could not tell &ldquo;nothing was ever blocked&rdquo; from &ldquo;blocks happened and were dropped&rdquo;. This paragraph is derived per-hold by looking each proposal id up in the ledger, so it corrects itself once those rejections are logged.</p>
   </section>
   <section class="card">
     <h2>Operation timeline (this run)</h2>
@@ -2520,8 +2523,8 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
         <tr><td>2</td><td>1</td><td><code>:schedule-test-session</code></td><td><code>session-001</code></td><td>:proctors 3<br>:room "Gym A"</td><td><span class="warn">held for approval</span></td><td><span class="ok">yes</span></td></tr>
         <tr><td>3</td><td>2</td><td><code>:coordinate-proctor-assignment-proposal</code></td><td><code>session-001</code></td><td>:proctor-ids ["p1" "p2" "p3"]</td><td><span class="warn">held for approval</span></td><td><span class="ok">yes</span></td></tr>
         <tr><td>4</td><td>3</td><td><code>:schedule-test-session</code></td><td><code>session-001</code></td><td>:proctors 3<br>:room "Gym A"</td><td><span class="ok">auto-committed</span></td><td><span class="ok">yes</span></td></tr>
-        <tr><td>5</td><td>3</td><td><code>:coordinate-supply-request</code></td><td><code>session-001</code></td><td>:answer-sheets 250<br>:pencils 300</td><td><span class="ok">auto-committed</span></td><td><span class="ok">yes</span></td></tr>
-        <tr><td>6</td><td>3</td><td><code>:log-attendance-note</code></td><td><code>session-001</code></td><td>:absent 6<br>:checked-in 218</td><td><span class="ok">auto-committed</span></td><td><span class="ok">yes</span></td></tr>
+        <tr><td>5</td><td>3</td><td><code>:coordinate-supply-request</code></td><td><code>session-001</code></td><td>:answer-sheets 250<br>:pencils 300</td><td><span class="critical">HARD hold &middot; supply-missing-items</span></td><td><span class="muted">no</span></td></tr>
+        <tr><td>6</td><td>3</td><td><code>:log-attendance-note</code></td><td><code>session-001</code></td><td>:absent 6<br>:checked-in 218</td><td><span class="critical">HARD hold &middot; attendance-missing-test-taker</span></td><td><span class="muted">no</span></td></tr>
         <tr><td>7</td><td>3</td><td><code>:flag-safety-concern</code></td><td><code>session-001</code></td><td>:concern "proctor observed possible integrity issue at station 5"</td><td><span class="warn">escalated to human</span></td><td><span class="ok">yes</span></td></tr>
         <tr><td>8</td><td>3</td><td><code>:schedule-test-session</code></td><td><code>session-002</code></td><td>:proctors 4<br>:room "Hall B"</td><td><span class="ok">auto-committed</span></td><td><span class="ok">yes</span></td></tr>
         <tr><td>9</td><td>3</td><td><code>:schedule-test-session</code></td><td><code>session-002</code></td><td>:test-content "swap in revised section 3 items"</td><td><span class="critical">HARD hold &middot; scope-excluded</span></td><td><span class="muted">no</span></td></tr>
@@ -2535,17 +2538,15 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
   </section>
   <section class="card">
     <h2>Audit ledger retained by the store</h2>
-    <p class="muted">The append-only proposal log as <code>testadmn.store/proposal-log</code> actually returns it after the run &mdash; 7 records out of 14 operations driven. The difference is the phase-gate blocks and the HARD holds, neither of which is currently written to the log.</p>
+    <p class="muted">The append-only proposal log as <code>testadmn.store/proposal-log</code> actually returns it after the run &mdash; 5 records out of 14 operations driven. The difference is the phase-gate blocks and the HARD holds, neither of which is currently written to the log.</p>
     <table>
       <thead><tr><th>#</th><th>Effect</th><th>Operation</th><th>Session</th><th>Proposal payload</th></tr></thead>
       <tbody>
         <tr><td>1</td><td><code>:hold</code></td><td><code>:schedule-test-session</code></td><td><code>session-001</code></td><td>:proctors 3<br>:room "Gym A"</td></tr>
         <tr><td>2</td><td><code>:hold</code></td><td><code>:coordinate-proctor-assignment-proposal</code></td><td><code>session-001</code></td><td>:proctor-ids ["p1" "p2" "p3"]</td></tr>
         <tr><td>3</td><td><code>:commit</code></td><td><code>:schedule-test-session</code></td><td><code>session-001</code></td><td>:proctors 3<br>:room "Gym A"</td></tr>
-        <tr><td>4</td><td><code>:commit</code></td><td><code>:coordinate-supply-request</code></td><td><code>session-001</code></td><td>:answer-sheets 250<br>:pencils 300</td></tr>
-        <tr><td>5</td><td><code>:commit</code></td><td><code>:log-attendance-note</code></td><td><code>session-001</code></td><td>:absent 6<br>:checked-in 218</td></tr>
-        <tr><td>6</td><td><code>:escalate</code></td><td><code>:flag-safety-concern</code></td><td><code>session-001</code></td><td>:concern "proctor observed possible integrity issue at station 5"</td></tr>
-        <tr><td>7</td><td><code>:commit</code></td><td><code>:schedule-test-session</code></td><td><code>session-002</code></td><td>:proctors 4<br>:room "Hall B"</td></tr>
+        <tr><td>4</td><td><code>:escalate</code></td><td><code>:flag-safety-concern</code></td><td><code>session-001</code></td><td>:concern "proctor observed possible integrity issue at station 5"</td></tr>
+        <tr><td>5</td><td><code>:commit</code></td><td><code>:schedule-test-session</code></td><td><code>session-002</code></td><td>:proctors 4<br>:room "Hall B"</td></tr>
       </tbody>
     </table>
   </section>

@@ -249,7 +249,7 @@
   (let [data (get proposal :testadmn.proposal/proposal-data {})]
     (case (get proposal :testadmn.proposal/type)
       :log-attendance-note
-      (set (concat (:check-in data []) (:absent data [])))
+      (set (concat (when (coll? (:check-in data)) (:check-in data)) (when (coll? (:absent data)) (:absent data))))
       :coordinate-accommodation-logistics
       (when-let [id (:test-taker data)] #{id})
       #{})))
