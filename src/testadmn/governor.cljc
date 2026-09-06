@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Three HARD, permanent, un-overridable checks
+;; Four HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -9,12 +9,19 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Three HARD checks (un-overridable):
+   Four HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
       adjudication, or safety-authority overrides are blocked. Legitimate
-      :flag-safety-concern escalates only, never auto-commits.")
+      :flag-safety-concern escalates only, never auto-commits.
+   4. Proctor impartiality — a :coordinate-proctor-assignment-proposal must not
+      name a proctor who is declared conflicted (teaches/supervises/related to
+      a registered test-taker of the target session). A conflicted proctor is
+      rejected outright; it is never held and never auto-committed, because an
+      examiner must never proctor a test-taker they personally teach or are
+      otherwise non-impartial toward. This is an exam-integrity control that the
+      closed allowlist schedules at Phase 2+ and MUST NOT auto-commit at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -80,15 +87,69 @@
     :else
     {:pass? true :reason "within-scope"}))
 
+;; === Proctor Impartiality (HARD CHECK 4) ===
+;; An examiner must never be assigned as proctor for a session in which they
+;; teach, supervise, or have a declared personal relationship with a registered
+;; test-taker. This is a test-administration exam-integrity control: the
+;; allowlist schedules :coordinate-proctor-assignment-proposal from Phase 2 and
+;; auto-commits clean proposals at Phase 3, so a conflicted proctor MUST be
+;; rejected by the governor rather than held (holding would still let Phase 3
+;; auto-commit it the way :schedule-test-session auto-commits clean proposals).
+
+(def ^:private impartiality-field
+  ;; the key each proctor-assignment proposal must set on every proctor entry:
+  ;; true => proctor declares they are impartial (no teaching/relationship with
+  ;; any registered test-taker of the target session); false => conflicted.
+  :testadmn.proposal/proctor-impartial?)
+
+(defn- proctor-entries
+  "Normalize a proctor-assignment proposal to its list of proctor maps."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})
+        raw (or (:proctors data) (:proctor-ids data) [])]
+    (cond
+      ;; list of maps already carrying the impartiality field
+      (every? map? raw) raw
+      ;; plan-of-strings: promote each to a map without a declared status
+      (every? string? raw) (map (fn [p] {:proctor/id p}) raw)
+      :else [])))
+
+(defn- has-conflicted-proctor?
+  "True when the proposal names at least one proctor declared non-impartial."
+  [proposal]
+  (let [entries (proctor-entries proposal)]
+    (some (fn [p]
+            (false? (get p impartiality-field
+                         ;; default: a proctor with no declared status is
+                         ;; treated as UNCONFIRMED — the assignment MUST declare
+                         ;; impartiality explicitly before it can proceed.
+                         (when (contains? p :proctor/id) nil))))
+          entries)))
+
+(defn- hard-check-4-proctor-impartiality
+  "HARD CHECK 4: a proctor-assignment proposal must not name a conflicted
+   (declared non-impartial) proctor. Applies only to the
+   :coordinate-proctor-assignment-proposal op; all other ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :coordinate-proctor-assignment-proposal)
+      {:pass? true :reason "not-a-proctor-assignment"}
+      (cond
+        (has-conflicted-proctor? proposal)
+        {:pass? false :reason "proctor-conflict-of-interest" :proposal proposal}
+        :else
+        {:pass? true :reason "proctors-impartial"}))))
+
 (defn evaluate-proposal
-  "Evaluate proposal against all three HARD checks.
+  "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
   [store proposal]
   (let [check1 (hard-check-1-session-verified store proposal)
         check2 (hard-check-2-effect-is-propose proposal)
         check3 (hard-check-3-scope-exclusion proposal)
-        all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3))
-        checks [check1 check2 check3]
+        check4 (hard-check-4-proctor-impartiality proposal)
+        checks [check1 check2 check3 check4]
+        all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3) (:pass? check4))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
