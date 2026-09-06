@@ -16,13 +16,14 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Five HARD Checks
+## Governor: Six HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
 3. **Scope exclusion** — test-content, answer-keys, grading, eligibility, academic-integrity adjudication, or safety-authority overrides are blocked. Legitimate `:flag-safety-concern` escalates only, never auto-commits.
 4. **Proctor impartiality** — a `:coordinate-proctor-assignment-proposal` must not name a proctor declared non-impartial (teaching/related to a registered test-taker of the session). A conflicted proctor is rejected outright, never held and never auto-committed at Phase 3.
 5. **Accessibility accommodation is logistics-only** — a `:coordinate-accommodation-logistics` proposal must declare at least one recognized accommodation category (`:time-extension`, `:reader/scribe`, `:accessible-room`, `:alternate-format`, `:assistive-tech`) and must not carry any test-content, grading, eligibility, or policy change. An accommodation arranges HOW a test-taker accesses a session, never WHAT is judged. A category-less, unknown-category, or content-bearing accommodation is rejected outright, never auto-committed at Phase 3.
+6. **Test-taker enrollment binding** — attendance and accommodations may name only people actually registered to sit THAT session. Each session carries a `:testadmn.test-session/roster` (the set of enrolled test-taker ids). A `:log-attendance-note` (every id in `:check-in`/`:absent`) and a `:coordinate-accommodation-logistics` (its `:test-taker`) must each be a member of the target session's roster. A roster-less session, or any proposal naming an un-enrolled/unknown id, is rejected outright — never held, never auto-committed at Phase 3 (anti-impersonation / anti-proxy-testing: you cannot log check-in for, or arrange access for, a fabricated person).
 
 ## Closed :propose-only Allowlist
 

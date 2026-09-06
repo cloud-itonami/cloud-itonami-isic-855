@@ -25,6 +25,7 @@
 (s/def :testadmn.test-session/verified? boolean?)
 (s/def :testadmn.test-session/scheduled-start #?(:clj inst? :cljs string?))
 (s/def :testadmn.test-session/facility-id string?)
+(s/def :testadmn.test-session/roster (s/coll-of string? :kind set?))
 
 (s/def :testadmn/test-session
   (s/keys :req [:testadmn.test-session/id
@@ -103,8 +104,9 @@
 ;; logged proposal needs the EDN-blob codec every sibling store uses.
 
 (def ^:private schema
-  {:testadmn.test-session/id {:db/unique :db.unique/identity}
-   :proposal-log/seq         {:db/unique :db.unique/identity}})
+  {:testadmn.test-session/id      {:db/unique :db.unique/identity}
+   :testadmn.test-session/roster  {:db/cardinality :db.cardinality/many}
+   :proposal-log/seq              {:db/unique :db.unique/identity}})
 
 (defn- enc [v] (pr-str v))
 (defn- dec* [s] (when s (edn/read-string s)))
@@ -112,7 +114,8 @@
 (def ^:private session-pull
   [:testadmn.test-session/id :testadmn.test-session/name
    :testadmn.test-session/registered? :testadmn.test-session/verified?
-   :testadmn.test-session/scheduled-start :testadmn.test-session/facility-id])
+   :testadmn.test-session/scheduled-start :testadmn.test-session/facility-id
+   :testadmn.test-session/roster])
 
 (defn- prune-nils [m] (into {} (remove (comp nil? val) m)))
 
@@ -170,15 +173,20 @@
 
 (def demo-registered-sessions
   "Sessions seeded through `register-session!` (which forces :registered? true,
-  :verified? false -- see the deftype above)."
+  :verified? false -- see the deftype above). Each carries its live test-taker
+  roster -- the enrolled-taker set HARD CHECK 6 reads to verify that no
+  attendance or accommodation proposal names a person who is not registered to
+  sit THAT session (anti-impersonation / anti-proxy-testing control)."
   [{:testadmn.test-session/id "session-001"
     :testadmn.test-session/name "SAT Administration 2026-07-15"
     :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
-    :testadmn.test-session/facility-id "facility-101"}
+    :testadmn.test-session/facility-id "facility-101"
+    :testadmn.test-session/roster #{"T. Nakagawa" "A. Yamada" "R. Ito"}}
    {:testadmn.test-session/id "session-002"
     :testadmn.test-session/name "ACT Administration 2026-07-22"
     :testadmn.test-session/scheduled-start "2026-07-22T09:00:00Z"
-    :testadmn.test-session/facility-id "facility-204"}])
+    :testadmn.test-session/facility-id "facility-204"
+    :testadmn.test-session/roster #{"K. Tanaka" "S. Suzuki" "M. Kato"}}])
 
 (def demo-unregistered-sessions
   "Sessions seeded through `create-session!`, left :registered? false on
