@@ -17,7 +17,11 @@
    2. :coordinate-proctor-assignment-proposal — administrative proctor PROPOSAL
    3. :coordinate-supply-request — non-content consumables
    4. :log-attendance-note — test-session attendance/check-in logging
-   5. :flag-safety-concern — facility/integrity/wellbeing concerns")
+   5. :flag-safety-concern — facility/integrity/wellbeing concerns
+   6. :coordinate-accommodation-logistics — accessibility/reasonable accommodations
+      for test-takers with disabilities (time extension, reader/scribe,
+      accessible room, alternate format, assistive tech) — logistics only, never
+      changes test content, grading, eligibility, or any academic judgement")
 
 ;; === Operation Types ===
 
@@ -26,7 +30,8 @@
     :coordinate-proctor-assignment-proposal
     :coordinate-supply-request
     :log-attendance-note
-    :flag-safety-concern})
+    :flag-safety-concern
+    :coordinate-accommodation-logistics})
 
 (s/def :testadmn.operation/type (set allowed-ops))
 

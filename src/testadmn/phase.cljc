@@ -8,7 +8,8 @@
 (comment
   "Phase 0: read-only.
    Phase 1: schedule test session (approval-gated).
-   Phase 2: + proctor assignment, supply coordination (approval-gated).
+   Phase 2: + proctor assignment, supply coordination, accessibility
+            accommodation logistics (approval-gated).
    Phase 3: auto-commits clean proposals; safety concerns always escalate.")
 
 (s/def :testadmn.phase/stage #{0 1 2 3})
@@ -23,10 +24,12 @@
     2 #{:schedule-test-session
         :coordinate-proctor-assignment-proposal
         :coordinate-supply-request
+        :coordinate-accommodation-logistics
         :flag-safety-concern}
     3 #{:schedule-test-session
         :coordinate-proctor-assignment-proposal
         :coordinate-supply-request
+        :coordinate-accommodation-logistics
         :log-attendance-note
         :flag-safety-concern}
     #{:flag-safety-concern}))  ; fallback: always allow safety
