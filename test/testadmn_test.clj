@@ -313,3 +313,89 @@
                                         {:concern "proctor observed integrity issue"})
           result (op/execute-operation operation s 2)]
       (is (= :escalated (:status result))))))
+
+;; === HARD CHECK 4: proctor impartiality ===
+;; An examiner must never be assigned as proctor for a session in which they
+;; teach, supervise, or have a declared relationship with a registered
+;; test-taker. This is an exam-integrity control the closed allowlist
+;; schedules from Phase 2; because Phase 3 auto-commits clean proctor
+;; assignments, a conflicted proctor MUST be rejected by the governor and
+;; never auto-committed.
+
+(deftest test-hard-check-4-blocks-declared-conflicted-proctor
+  ;; A proctor-assignment proposal naming a proctor who declares
+  ;; non-impartiality (teaches/relates to a test-taker of the session) is
+  ;; rejected outright — the governor must not let it reach Phase 3
+  ;; auto-commit.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :coordinate-proctor-assignment-proposal
+                    :testadmn.proposal/proposal-data
+                    {:proctors [{:proctor/id "A. Yamada"
+                                 :testadmn.proposal/proctor-impartial? true}
+                                {:proctor/id "T. Tanaka"
+                                 :testadmn.proposal/proctor-impartial? false}]}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (false? (:accepted? result)))
+      (is (= "proctor-conflict-of-interest" (:reason result))))))
+
+(deftest test-hard-check-4-all-impartial-proctors-pass
+  ;; A proctor-assignment proposal is accepted when every named proctor
+  ;; declares impartiality explicitly.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :coordinate-proctor-assignment-proposal
+                    :testadmn.proposal/proposal-data
+                    {:proctors [{:proctor/id "A. Yamada"
+                                 :testadmn.proposal/proctor-impartial? true}
+                                {:proctor/id "B. Sato"
+                                 :testadmn.proposal/proctor-impartial? true}]}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (true? (:accepted? result)))
+      (is (= "all-checks-pass" (:reason result))))))
+
+(deftest test-hard-check-4-non-proctor-ops-unaffected
+  ;; HARD check 4 only governs :coordinate-proctor-assignment-proposal; other
+  ;; ops (e.g. :schedule-test-session with a :proctors plan-of-strings, as the
+  ;; demo seed uses) pass check4 trivially.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p1"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :schedule-test-session
+                    :testadmn.proposal/proposal-data {:room "Gym A" :proctors 3}}
+          check4 (-> (gov/evaluate-proposal s proposal) :checks last)]
+      (is (true? (:pass? check4))))))
+
+(deftest test-conflicted-proctor-never-auto-committed-phase3
+  ;; End to end: a conflicted proctor assignment at Phase 3 is rejected by the
+  ;; governor and never auto-committed.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-proctor-assignment-proposal "sess-001"
+                                        {:proctors [{:proctor/id "A. Yamada"
+                                                     :testadmn.proposal/proctor-impartial? true}
+                                                    {:proctor/id "T. Tanaka"
+                                                     :testadmn.proposal/proctor-impartial? false}]})
+          result (op/execute-operation operation s 3)]
+      (is (= :rejected (:status result)))
+      (is (= "proctor-conflict-of-interest" (:reason result))))))
+
+(deftest test-impartial-proctor-auto-commits-phase3
+  ;; All-impartial proctor assignment still auto-commits at Phase 3.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :coordinate-proctor-assignment-proposal "sess-001"
+                                        {:proctors [{:proctor/id "A. Yamada"
+                                                     :testadmn.proposal/proctor-impartial? true}
+                                                    {:proctor/id "B. Sato"
+                                                     :testadmn.proposal/proctor-impartial? true}]})
+          result (op/execute-operation operation s 3)]
+      (is (= :auto-committed (:status result))))))

@@ -11,16 +11,17 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Three HARD, permanent, un-overridable checks
+- `testadmn.governor` — Four HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Three HARD Checks
+## Governor: Four HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
 3. **Scope exclusion** — test-content, answer-keys, grading, eligibility, academic-integrity adjudication, or safety-authority overrides are blocked. Legitimate `:flag-safety-concern` escalates only, never auto-commits.
+4. **Proctor impartiality** — a `:coordinate-proctor-assignment-proposal` must not name a proctor declared non-impartial (teaching/related to a registered test-taker of the session). A conflicted proctor is rejected outright, never held and never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
@@ -29,6 +30,18 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `:coordinate-supply-request` — non-content consumables (answer sheets, pencils)
 - `:log-attendance-note` — test-session attendance/check-in logging
 - `:flag-safety-concern` — facility/integrity/wellbeing concerns (always escalates)
+
+Proctor assignment proposal shape (impartiality is MANDATORY on every proctor):
+
+```clojure
+{:proctors [{:proctor/id "A. Yamada" :testadmn.proposal/proctor-impartial? true}
+            {:proctor/id "B. Sato"   :testadmn.proposal/proctor-impartial? true}]}
+```
+
+A proctor with `:testadmn.proposal/proctor-impartial? false` (or any proctor
+that is not explicitly declared impartial) is `proctor-conflict-of-interest`
+rejected by the governor — never held at Phase 2, never auto-committed at
+Phase 3.
 
 ## Staged Phases
 
