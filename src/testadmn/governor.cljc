@@ -1,15 +1,16 @@
 ;; testadmn.governor — Test Administration Governor
-;; Seven HARD, permanent, un-overridable checks
+;; Eight HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
+            [clojure.set :as set]
             [testadmn.store :as store]))
 
 (comment
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Seven HARD checks (un-overridable):
+   Eight HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -41,7 +42,12 @@
       TERMS; it does not bound WHICH non-content consumables a request may
       order. An unrecognized or empty supply request is rejected outright
       instead of being auto-committed at Phase 3, because auto-commit must not
-      channel silently grant an access arrangement with no HOW documented.")
+      channel silently grant an access arrangement with no HOW documented.
+   8. Attendance self-contradiction — a :log-attendance-note must not mark the
+      same test-taker as both :check-in and :absent in the same session; the
+      two sets must be disjoint. A self-contradiction is an ambiguous
+      attendance record (the paper-trail equivalent of proxy/ghost attendance)
+      and is rejected outright — never held, never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -339,6 +345,45 @@
         {:pass? true :reason "supply-consumables-allowed"}))))
 
 
+;; === Attendance Self-Contradiction (HARD CHECK 8) ===
+;; ISIC-855 test administration logs attendance per registered test-taker as
+;; :check-in (present) or :absent. A single test-taker cannot simultaneously be
+;; present and absent at the SAME test session -- marking the same id in both
+;; :check-in and :absent is a logistics contradiction (an ambiguous attendance
+;; record is the paper-trail equivalent of proxy/ghost attendance). HARD
+;; CHECK 8 closes a gap in the attendance pipeline: the enrollment-binding
+;; check (HARD CHECK 6) already verifies every id is on the session roster,
+;; but its helper `named-test-taker-ids` collapses :check-in and :absent into
+;; ONE set for that membership test, so a self-contradiction is silently
+;; discarded today. HARD CHECK 8 therefore rejects a :log-attendance-note
+;; whose :check-in and :absent sets are NOT disjoint -- outright, never held,
+;; never auto-committed at Phase 3.
+
+(defn- named-attendance-sets
+  "The :check-in and :absent id sets of an attendance note, each normalized
+   to a set (empty when absent). Kept separate from the membership test so the
+   contradiction between the two stays visible instead of being collapsed."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})]
+    {:check-in (set (when (coll? (:check-in data)) (:check-in data)))
+     :absent   (set (when (coll? (:absent data)) (:absent data)))}))
+
+(defn- hard-check-8-attendance-self-contradiction
+  "HARD CHECK 8: a :log-attendance-note must not mark the same test-taker as
+   both :check-in and :absent. Applies only to :log-attendance-note; all other
+   ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :log-attendance-note)
+      {:pass? true :reason "not-an-attendance-note"}
+      (let [{:keys [check-in absent]} (named-attendance-sets proposal)
+            both (set/intersection check-in absent)]
+        (if (seq both)
+          {:pass? false :reason "attendance-self-contradiction"
+           :test-takers (vec both) :proposal proposal}
+          {:pass? true :reason "attendance-non-contradictory"})))))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -350,10 +395,11 @@
         check5 (hard-check-5-accommodation-logistics proposal)
         check6 (hard-check-6-test-taker-enrollment store proposal)
         check7 (hard-check-7-supply-allowlist proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7]
+        check8 (hard-check-8-attendance-self-contradiction proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7))
+                       (:pass? check7) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
