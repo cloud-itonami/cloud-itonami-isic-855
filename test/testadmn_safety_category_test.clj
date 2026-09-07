@@ -34,7 +34,7 @@
                    s
                    (flag-proposal
                      {:concern "proctor observed possible integrity issue at station 5"
-                      :safety-concerns [:integrity-incident]}))]
+                      :safety-concerns [:integrity-incident] :facility-id "station-5"}))]
       (is (true? (:accepted? result)))
       (is (= "flag-safety-concern-escalates" (:reason result)))
       (is (= "safety-concern-categorized" (:reason (check11-of result)))))))

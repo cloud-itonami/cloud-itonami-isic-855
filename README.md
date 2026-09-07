@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Sixteen HARD, permanent, un-overridable checks
+- `testadmn.governor` — Seventeen HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Sixteen HARD Checks
+## Governor: Seventeen HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -96,6 +96,18 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    access arrangements declared) without adding an actual separate
    arrangement to the room. A duplicated accommodation category is rejected
    outright, never held, never auto-committed at Phase 3.
+
+
+17. **Safety-concern referent** — a `:flag-safety-concern` must name at least
+   one concrete referent so triage knows WHERE or WHO: a non-blank
+   `:facility-id` (facility/environmental hazards) and/or a `:test-taker-id`
+   (wellbeing / integrity concern about a person). HARD CHECK 11 only
+   requires a recognized CATEGORY; it says nothing about whether the flag
+   points at any actual room or person. A flag naming a category but no
+   referent still escalates (check 3 legitimizes every flag carrying flagging
+   keywords) as a content-free no-op that nobody can triage or act on. A
+   referent-less safety flag is rejected outright — never held, never
+   auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
