@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Twelve HARD, permanent, un-overridable checks
+;; Thirteen HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Twelve HARD checks (un-overridable):
+   Thirteen HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -576,6 +576,44 @@
           :else
           {:pass? true :reason "schedule-verified"})))))
 
+;; === Proctor-Assignment No Duplicate (HARD CHECK 13) ===
+;; ISIC-855 test administration assigns proctors to a session through the
+;; :coordinate-proctor-assignment-proposal op. HARD CHECK10 requires the
+;; assignment to name at least one proctor, and HARD CHECK4 requires each
+;; named proctor to declare impartiality -- but neither guards whether the
+;; assignment names THE SAME proctor twice. Doubling a proctor's id in the
+;; paper trail is the logistics equivalent of fabricating a second proctor in
+;; the room: it inflates the observable staffing roster without adding an
+;; actual body, so a malformed assignment could claim more supervision than
+;; the room actually has. HARD CHECK13 closes that: a
+;; :coordinate-proctor-assignment-proposal must not name the same proctor id
+;; more than once; otherwise it is rejected outright, never held, never
+;; auto-committed at Phase 3.
+
+(defn- named-proctor-ids
+  "The set of proctor ids a proctor-assignment proposal names (duplicates
+   collapse to one member, so a repeated id is detectable)."
+  [proposal]
+  (into #{} (keep :proctor/id (proctor-entries proposal))))
+
+(defn- has-duplicate-proctor?
+  "True when a proctor assignment names the same proctor id more than once."
+  [proposal]
+  (let [ids (keep :proctor/id (proctor-entries proposal))]
+    (> (count ids) (count (named-proctor-ids proposal)))))
+
+(defn- hard-check-13-proctor-assignment-no-duplicate
+  "HARD CHECK13: a :coordinate-proctor-assignment-proposal must not name a
+   proctor id more than once. Applies only to that op; all other ops pass
+   trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :coordinate-proctor-assignment-proposal)
+      {:pass? true :reason "not-a-proctor-assignment"}
+      (if (has-duplicate-proctor? proposal)
+        {:pass? false :reason "proctor-assignment-duplicate" :proposal proposal}
+        {:pass? true :reason "proctors-distinct"}))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -592,10 +630,11 @@
         check10 (hard-check-10-proctor-assignment-nonempty proposal)
         check11 (hard-check-11-safety-category proposal)
         check12 (hard-check-12-schedule-verified store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check8]
+        check13 (hard-check-13-proctor-assignment-no-duplicate proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

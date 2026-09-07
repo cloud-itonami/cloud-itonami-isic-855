@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Twelve HARD, permanent, un-overridable checks
+- `testadmn.governor` — Thirteen HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Twelve HARD Checks
+## Governor: Thirteen HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -53,6 +53,17 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    auto-committed at Phase 3.
 
 12. **Schedule verified** — the target session of a `:schedule-test-session` must carry a concrete venue (`:testadmn.test-session/facility-id`) and a start time (`:testadmn.test-session/scheduled-start`). `:schedule-test-session` is the Phase-1 scheduling act and the first op the allowlist auto-commits at Phase 3, so an unschedulable session (no room, no time) must be rejected outright rather than auto-committed as if a logistics plan existed. A venue-less or start-less schedule is rejected outright, never held and never auto-committed at Phase 3.
+
+13. **No duplicate proctor assignment** — a
+   `:coordinate-proctor-assignment-proposal` must not name the same proctor id
+   more than once. HARD CHECK 10 (non-empty) only requires that SOMEONE is
+   named, and HARD CHECK 4 (impartiality) only rejects declared-conflicted
+   proctors; neither guards against the SAME proctor being doubled in the
+   paper trail. Doubling an id fabricates a second proctor in the room — it
+   inflates the observable staffing roster without adding an actual body, so a
+   malformed assignment could claim more supervision than exists. A
+   duplicated proctor id is rejected outright, never held, never
+   auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
