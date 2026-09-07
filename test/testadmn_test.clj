@@ -106,7 +106,8 @@
     (store/register-session! s "sess-001"
       {:testadmn.test-session/name "SAT Administration 2026-07-15"
        :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
-       :testadmn.test-session/facility-id "facility-101"})
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
@@ -153,7 +154,8 @@
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
       {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
-       :testadmn.test-session/facility-id "facility-101"})
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [operation (op/make-operation :schedule-test-session "sess-001"
                                         {:room "Gym A" :proctors 3})
           result (op/execute-operation operation s 1)]
@@ -163,7 +165,8 @@
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
       {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
-       :testadmn.test-session/facility-id "facility-101"})
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [operation (op/make-operation :schedule-test-session "sess-001"
                                         {:room "Gym A" :proctors 3})
           result (op/execute-operation operation s 3)]

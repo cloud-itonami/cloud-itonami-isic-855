@@ -19,7 +19,8 @@
     (store/register-session! s "session-001"
       {:testadmn.test-session/name "SAT Administration 2026-07-15"
        :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
-       :testadmn.test-session/facility-id "facility-101"})
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"T. Nakagawa" "A. Yamada" "R. Ito"}})
 
     ;; Generate and execute operations at different phases
     (let [phase-0-result

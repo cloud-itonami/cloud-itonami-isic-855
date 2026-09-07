@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Seventeen HARD, permanent, un-overridable checks
+- `testadmn.governor` — Eighteen HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Seventeen HARD Checks
+## Governor: Eighteen HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -108,6 +108,17 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    keywords) as a content-free no-op that nobody can triage or act on. A
    referent-less safety flag is rejected outright — never held, never
    auto-committed at Phase 3.
+18. **Schedule enrolled roster** — the target session of a
+    `:schedule-test-session` must carry a non-empty enrolled test-taker
+    roster. HARD CHECK 6 (enrollment binding) only constrains
+    attendance/accommodation proposals that NAME a test-taker; a
+    `:schedule-test-session` names none, so without this check a
+    roster-less session passes 1–17 and, at Phase 3, would auto-commit as
+    a plan to run an exam nobody is enrolled to sit (the scheduling-side
+    analog of ghost/proxy testing). A schedule targeting a session with no
+    enrolled roster is rejected outright — never held, never auto-committed
+    at Phase 3.
+
 
 ## Closed :propose-only Allowlist
 
