@@ -150,7 +150,7 @@
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001" {})
     (let [operation (op/make-operation :schedule-test-session "sess-001"
-                                        {:room "Gym A"})
+                                        {:room "Gym A" :proctors 3})
           result (op/execute-operation operation s 1)]
       (is (= :held-for-approval (:status result))))))
 
@@ -158,7 +158,7 @@
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001" {})
     (let [operation (op/make-operation :schedule-test-session "sess-001"
-                                        {:room "Gym A"})
+                                        {:room "Gym A" :proctors 3})
           result (op/execute-operation operation s 3)]
       (is (= :auto-committed (:status result))))))
 
