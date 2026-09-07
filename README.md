@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Fifteen HARD, permanent, un-overridable checks
+- `testadmn.governor` — Sixteen HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Fifteen HARD Checks
+## Governor: Sixteen HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -83,6 +83,18 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    proctor and check 14's duplicated attendance id: it inflates the nominal
    supply count (and the consumed-stock ledger) without adding an actual
    physical delivery item to the room. A duplicated supply item is rejected
+   outright, never held, never auto-committed at Phase 3.
+
+16. **No duplicate accommodation rule** — a
+   `:coordinate-accommodation-logistics` must not name the same accommodation
+   category more than once. HARD CHECK 5 (logistics-only categories) only
+   requires that every named category is one of the recognized closed set; it
+   never guards against the SAME category being declared twice. Repeating a
+   category is the accommodation-side analog of check 13's duplicated
+   proctor, check 14's duplicated attendance id, and check 15's duplicated
+   supply item: it inflates the nominal accommodation count (the number of
+   access arrangements declared) without adding an actual separate
+   arrangement to the room. A duplicated accommodation category is rejected
    outright, never held, never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
