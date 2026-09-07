@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Eighteen HARD, permanent, un-overridable checks
+;; Nineteen HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Eighteen HARD checks (un-overridable):
+   Nineteen HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -100,7 +100,8 @@
       :schedule-test-session names none, so a roster-less session passes
       checks 1-17 and, at Phase 3, auto-commits a plan to run an exam
       nobody is enrolled to sit. A session with no enrolled roster is
-      rejected outright — never held, never auto-committed at Phase 3.")
+        19. Safety-referent category match — a :flag-safety-concern must carry the referent kind its category implies: a facility-class category (:facility-hazard, :environmental-hazard) MUST name a non-blank :facility-id, and :test-taker-wellbeing MUST name a non-blank :test-taker-id. HARD CHECK 11 only requires a recognized category and HARD CHECK 17 only requires SOME referent; neither ties the referent's TYPE to the category, so a facility-hazard flagged with only a person id (or a wellbeing concern flagged with only a room id) still escalates into the wrong triage lane. A category whose required referent kind is absent is rejected outright — never held, never auto-committed at Phase 3.
+rejected outright — never held, never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -804,6 +805,49 @@
            :session-id target-session-id}
           {:pass? true :reason "schedule-roster-enrolled"})))))
 
+;; === Safety-Referent Category Match (HARD CHECK 19) ===
+;; ISIC-855 a safety flag's category must be matched by the RIGHT kind of
+;; referent. HARD CHECK 11 requires a recognized CATEGORY; HARD CHECK 17
+;; requires at least one referent -- but neither ties the referent's TYPE to
+;; the category. A flag declaring :facility-hazard (a room/environment
+;; concern) while naming only a :test-taker-id -- or :test-taker-wellbeing (a
+;; person concern) while naming only a :facility-id -- still escalates into
+;; the WRONG triage lane. HARD CHECK 19 closes it: a facility-class category
+;; (:facility-hazard, :environmental-hazard) MUST carry a non-blank
+;; :facility-id; :test-taker-wellbeing MUST carry a non-blank :test-taker-id.
+;; A category whose required referent kind is absent is rejected outright,
+;; never held, never auto-committed at Phase 3 (safety never auto-commits
+;; anyway; this makes every escalation route to the lane its category implies).
+
+(defn- hard-check-19-safety-referent-match
+  "HARD CHECK 19: a safety flag's referent TYPE must match its category.
+   facility-class categories need a :facility-id; :test-taker-wellbeing needs
+   a :test-taker-id. Applies only to :flag-safety-concern; all other ops pass
+   trivially. Note check 11/17 only require A category / A referent; this
+   check binds the two."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :flag-safety-concern)
+      {:pass? true :reason "not-a-safety-concern"}
+      (let [data (get proposal :testadmn.proposal/proposal-data {})
+            catset (set (safety-concern-entries proposal))
+            facility-class #{:facility-hazard :environmental-hazard}
+            facility-cats (set/intersection catset facility-class)
+            facility-missing? (and (seq facility-cats)
+                                   (blank-value? (:facility-id data)))
+            wellbeing-missing? (and (contains? catset :test-taker-wellbeing)
+                                    (blank-value? (:test-taker-id data)))]
+        (cond
+          facility-missing?
+          {:pass? false :reason "safety-referent-facility-missing"
+           :categories (vec facility-cats) :proposal proposal}
+          wellbeing-missing?
+          {:pass? false :reason "safety-referent-test-taker-missing"
+           :categories [:test-taker-wellbeing] :proposal proposal}
+          :else
+          {:pass? true :reason "safety-referent-matched"})))))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -826,10 +870,11 @@
         check16 (hard-check-16-accommodation-no-duplicate proposal)
         check17 (hard-check-17-safety-referent proposal)
         check18 (hard-check-18-schedule-enrolled-roster store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check8]
+        check19 (hard-check-19-safety-referent-match proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
