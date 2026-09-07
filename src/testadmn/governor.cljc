@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Eight HARD, permanent, un-overridable checks
+;; Nine HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Eight HARD checks (un-overridable):
+   Nine HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -47,7 +47,16 @@
       same test-taker as both :check-in and :absent in the same session; the
       two sets must be disjoint. A self-contradiction is an ambiguous
       attendance record (the paper-trail equivalent of proxy/ghost attendance)
-      and is rejected outright — never held, never auto-committed at Phase 3.")
+      and is rejected outright — never held, never auto-committed at Phase 3.
+   9. Proctor staffing — a :schedule-test-session must declare a positive
+      proctor headcount (:proctors >= 1) in its proposal-data. An exam cannot
+      be administered with zero proctors — no one to verify attendance,
+      supervise test-takers, or distribute/collect supplies. HARD CHECK 4
+      (impartiality) only guards the separate
+      :coordinate-proctor-assignment-proposal op; it says nothing about
+      whether a session is staffed at all. A schedule naming zero (or
+      omitting) proctors is rejected outright — never held, never
+      auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -384,6 +393,46 @@
           {:pass? true :reason "attendance-non-contradictory"})))))
 
 
+;; === Proctor Staffing Sufficiency (HARD CHECK 9) ===
+;; ISIC-855 test administration cannot actually run a session with zero
+;; proctors: nobody to verify attendance, supervise test-takers, or
+;; distribute/collect supplies. The allowlist auto-commits clean proposals at
+;; Phase 3 (see phase.cljc: every op except :flag-safety-concern auto-commits
+;; at Phase 3), and :schedule-test-session is that phase-1 scheduling act.
+;; Checks 1-8 never look at staffing: check 1 requires existence/registration,
+;; check 2 requires :effect :propose, check 3 guards scope, checks 4-8 guard
+;; proctor impartiality (a DIFFERENT op), accommodation, enrollment, supply,
+;; attendance. None of them requires a scheduled session to have even ONE
+;; proctor. A `:schedule-test-session` whose proposal-data names :proctors 0
+;; (or omits it) therefore passes checks 1-8 and, at Phase 3, auto-commits an
+;; exam plan with no supervision. HARD CHECK 9 closes that: a
+;; :schedule-test-session must declare a positive integer proctor headcount
+;; (>= 1); otherwise it is rejected outright, never held, never auto-committed
+;; at Phase 3.
+
+(defn- declared-proctor-headcount
+  "The :proctors headcount a :schedule-test-session names in its
+   proposal-data (nil when omitted). Room is where a session runs; proctors
+   is who supervises it."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})]
+    (:proctors data)))
+
+(defn- hard-check-9-proctor-staffing
+  "HARD CHECK 9: a :schedule-test-session must declare a positive proctor
+   headcount (an integer >= 1) in its proposal-data. Applies only to
+   :schedule-test-session; all other ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [n (declared-proctor-headcount proposal)]
+        (if (and (integer? n) (pos? n))
+          {:pass? true :reason "schedule-proctor-staffed"}
+          {:pass? false :reason "schedule-no-proctor-staffing"
+           :proposal proposal})))))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -396,10 +445,11 @@
         check6 (hard-check-6-test-taker-enrollment store proposal)
         check7 (hard-check-7-supply-allowlist proposal)
         check8 (hard-check-8-attendance-self-contradiction proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check8]
+        check9 (hard-check-9-proctor-staffing proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
