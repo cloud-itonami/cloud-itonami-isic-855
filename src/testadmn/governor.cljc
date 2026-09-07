@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Fifteen HARD, permanent, un-overridable checks
+;; Sixteen HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Fifteen HARD checks (un-overridable):
+   Sixteen HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -82,7 +82,17 @@
       name the same consumable more than once; repeating an item inflatesthe
       nominal supply count without adding an actual physical delivery item. A
       duplicated supply item is rejected outright — never held, never
-      auto-committed at Phase 3.")
+      auto-committed at Phase 3.
+  16. No duplicate accommodation rule — a :coordinate-accommodation-logistics
+      must not name the same accommodation category more than once. HARD
+      CHECK 5 (logistics-only categories) only requires every category to be
+      recognized; it never guards against the SAME category being listed
+      twice. Repeating a category is the accommodation-side analog of
+      HARD CHECK 13's duplicated proctor, HARD CHECK 14's duplicated
+      attendance id, and HARD CHECK 15's duplicated supply item: it inflates
+      the nominal accommodation count without adding an actual access
+      arrangement. A duplicated accommodation category is rejected outright
+      — never held, never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -686,6 +696,39 @@
         {:pass? false :reason "supply-duplicate-item" :proposal proposal}
         {:pass? true :reason "supply-items-distinct"}))))
 
+;; === No Duplicate Accommodation Rule (HARD CHECK 16) ===
+;; ISIC-855 test administration arranges accessibility logistics for a
+;; test-taker through the :coordinate-accommodation-logistics op. HARD
+;; CHECK 5 (logistics-only categories) requires every accommodation category
+;; to be one of the closed set, but it never guards against the SAME
+;; category being declared twice. Repeating a category is the
+;; accommodation-side analog of HARD CHECK 13's duplicated proctor, HARD
+;; CHECK 14's duplicated attendance id, and HARD CHECK 15's duplicated
+;; supply item: it inflates the nominal accommodation count (the number of
+;; access arrangements declared) without adding an actual separate
+;; arrangement to the room. HARD CHECK 16 rejects a proposal that repeats an
+;; accommodation category — outright, never held, never auto-committed at
+;; Phase 3.
+
+(defn- has-duplicate-accommodation-rule?
+  "True when an accommodation proposal declares the same category more than
+   once (a set would collapse these, so the raw sequence is inspected)."
+  [proposal]
+  (let [cats (accommodation-entries proposal)]
+    (> (count cats) (count (distinct cats)))))
+
+(defn- hard-check-16-accommodation-no-duplicate
+  "HARD CHECK 16: a :coordinate-accommodation-logistics must not name the
+   same accommodation category more than once. Applies only to
+   :coordinate-accommodation-logistics; all other ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :coordinate-accommodation-logistics)
+      {:pass? true :reason "not-an-accommodation"}
+      (if (has-duplicate-accommodation-rule? proposal)
+        {:pass? false :reason "accommodation-duplicate-category" :proposal proposal}
+        {:pass? true :reason "accommodation-rules-distinct"}))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -705,10 +748,11 @@
         check13 (hard-check-13-proctor-assignment-no-duplicate proposal)
         check14 (hard-check-14-attendance-no-duplicate-test-taker proposal)
         check15 (hard-check-15-supply-no-duplicate proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check8]
+        check16 (hard-check-16-accommodation-no-duplicate proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
