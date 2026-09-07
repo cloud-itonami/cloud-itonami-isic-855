@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Fourteen HARD, permanent, un-overridable checks
+- `testadmn.governor` — Fifteen HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Fourteen HARD Checks
+## Governor: Fifteen HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -74,6 +74,16 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    actual seated body (the attendance-side analog of check 13's duplicated
    proctor), so a duplicated attendance id is rejected outright, never held,
    never auto-committed at Phase 3.
+
+15. **No duplicate supply item** — a `:coordinate-supply-request` must not
+   name the same consumable more than once. HARD CHECK 7 (bounded consumable
+   allowlist) only requires that every named item is a recognized non-content
+   consumable; it never guards against the SAME item being listed twice.
+   Repeating an item is the supply-side analog of check 13's duplicated
+   proctor and check 14's duplicated attendance id: it inflates the nominal
+   supply count (and the consumed-stock ledger) without adding an actual
+   physical delivery item to the room. A duplicated supply item is rejected
+   outright, never held, never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
