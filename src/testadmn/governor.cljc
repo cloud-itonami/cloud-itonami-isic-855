@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Fourteen HARD, permanent, un-overridable checks
+;; Fifteen HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Fourteen HARD checks (un-overridable):
+   Fifteen HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -77,7 +77,12 @@
       auto-commits at Phase 3, so an unschedulable session (no room, no time)
       is rejected outright — never held, never auto-committed at Phase 3.
   13. No duplicate proctor assignment — a :coordinate-proctor-assignment-proposal must not name any proctor id more than once; doubling an id fabricates a second proctor in the room without adding an actual body.
-  14. No duplicate attendance test-taker — a :log-attendance-note must not name the same test-taker id more than once within :check-in or within :absent; doubling an id   inflates the nominal attendance count without adding an actual seated body. A duplicated attendance id is rejected outright — never held, never auto-committed at Phase 3.")
+  14. No duplicate attendance test-taker — a :log-attendance-note must not name the same test-taker id more than once within :check-in or within :absent; doubling an id   inflates the nominal attendance count without adding an actual seated body. A duplicated attendance id is rejected outright — never held, never auto-committed at Phase 3.
+  15. No duplicate supply item — a :coordinate-supply-request must not
+      name the same consumable more than once; repeating an item inflatesthe
+      nominal supply count without adding an actual physical delivery item. A
+      duplicated supply item is rejected outright — never held, never
+      auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -649,6 +654,38 @@
         :else
         {:pass? true :reason "attendance-test-takers-distinct"}))))
 
+;; === No Duplicate Supply Item (HARD CHECK 15) ===
+;; ISIC-855 test administration coordinates room supplies through the
+;; :coordinate-supply-request op. HARD CHECK 7 (bounded consumable
+;; allowlist) requires every named item to be a recognized non-content
+;; consumable, but it never guards against THE SAME consumable being listed
+;; twice. Repeating an item in the request is the logistics-analog of
+;; HARD CHECK13's duplicated proctor and HARD CHECK14's duplicated
+;; attendance id:it inflates the nominal supply count (and thus the
+;; consumed-stock ledger) without adding an actual physical delivery item
+;; to the room. HARD CHECK15 rejects a request that repeats a consumable
+;; item (case-insensitively matched, echoing CHECK7's normalization —
+;; outright, never held, never auto-committed at Phase 3.
+
+(defn- has-duplicate-supply-item?
+  "True when a supply request lists the same consumable more than once
+   (case-insensitive match, mirroring HARD CHECK7's normalization. "
+  [proposal]
+  (let [items (mapv str/lower-case (supply-item-entries proposal))]
+    (> (count items) (count (distinct items)))))
+
+(defn- hard-check-15-supply-no-duplicate
+  "HARD CHECK15: a :coordinate-supply-request must not name the same
+   consumable more than once. Applies only to :coordinate-supply-request;
+   all other ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :coordinate-supply-request)
+      {:pass? true :reason "not-a-supply-request"}
+      (if (has-duplicate-supply-item? proposal)
+        {:pass? false :reason "supply-duplicate-item" :proposal proposal}
+        {:pass? true :reason "supply-items-distinct"}))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -667,10 +704,11 @@
         check12 (hard-check-12-schedule-verified store proposal)
         check13 (hard-check-13-proctor-assignment-no-duplicate proposal)
         check14 (hard-check-14-attendance-no-duplicate-test-taker proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check8]
+        check15 (hard-check-15-supply-no-duplicate proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
