@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Twenty HARD, permanent, un-overridable checks
+;; Twenty-one HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Twenty HARD checks (un-overridable):
+   Twenty-one HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -895,6 +895,39 @@ rejected outright — never held, never auto-committed at Phase 3.")
           {:pass? true :reason "target-session-scheduled"})))))
 
 
+;; === Proctor Must Not Be an Enrolled Test-Taker (HARD CHECK 21) ===
+;; ISIC-855 test administration assigns proctors to supervise a session; a
+;; proctor must not ALSO be one of the test-takers enrolled to sit THAT
+;; session. HARD CHECK 4 (impartiality) only inspects the DECLARED
+;; :proctor-impartial? boolean -- a fabricated assignment can simply set it
+;; true -- and HARD CHECK 6 (enrollment binding) only binds test-taker names
+;; on attendance/accommodation ops, never proctor ids. So today a
+;; :coordinate-proctor-assignment-proposal that names a person who is on the
+;; target session's enrolled roster passes checks 1-20 and, at Phase 3,
+;; auto-commits a test-taker supervising their own exam -- an
+;; anti-impersonation / ghost-seating vector (the same id cannot be both the
+;; seated examinee and the supervisor in the room). HARD CHECK 21 closes it:
+;; a named proctor must NOT be a member of the target session's enrolled
+;; roster; otherwise it is rejected outright -- never held, never
+;; auto-committed at Phase 3.
+
+(defn- hard-check-21-proctor-not-enrolled
+  "HARD CHECK 21: a :coordinate-proctor-assignment-proposal must not name a
+   proctor who is also an enrolled test-taker of the target session. Applies
+   only to that op; all other ops pass trivially. An empty roster makes the
+   check vacuous (no member can be an offender)."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :coordinate-proctor-assignment-proposal)
+      {:pass? true :reason "not-a-proctor-assignment"}
+      (let [session (store/lookup-session store target-session-id)
+            roster (session-roster-set session)
+            offenders (set/intersection (named-proctor-ids proposal) roster)]
+        (if (seq offenders)
+          {:pass? false :reason "proctor-is-enrolled-test-taker"
+           :proctors (vec offenders) :proposal proposal}
+          {:pass? true :reason "proctors-not-enrolled"})))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -919,10 +952,11 @@ rejected outright — never held, never auto-committed at Phase 3.")
         check18 (hard-check-18-schedule-enrolled-roster store proposal)
         check19 (hard-check-19-safety-referent-match proposal)
         check20 (hard-check-20-target-scheduled store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check8]
+        check21 (hard-check-21-proctor-not-enrolled store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
