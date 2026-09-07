@@ -28,7 +28,9 @@
 (defn- store-with-session []
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
-      {:testadmn.test-session/roster #{"s001"}})
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001"}})
     s))
 
 (deftest test-hard-check-16-distinct-accommodations-pass

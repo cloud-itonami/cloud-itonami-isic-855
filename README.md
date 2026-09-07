@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Nineteen HARD, permanent, un-overridable checks
+- `testadmn.governor` — Twenty HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Nineteen HARD Checks
+## Governor: Twenty HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -131,6 +131,20 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    **must** name a non-blank `:test-taker-id`. A category whose required
    referent kind is absent is rejected outright — never held, never
    auto-committed at Phase 3.
+20. **Downstream logistics require a scheduled session** — a
+   `:log-attendance-note`, `:coordinate-proctor-assignment-proposal`,
+   `:coordinate-supply-request`, or `:coordinate-accommodation-logistics`
+   must target a session that already carries both a concrete venue
+   (`:testadmn.test-session/facility-id`) and a start time
+   (`:testadmn.test-session/scheduled-start`). HARD CHECK 12 (schedule-verified)
+   only guards `:schedule-test-session`; these four downstream ops each
+   auto-commit at Phase 3, so without this check a session that was never
+   scheduled (no room, no time) could still have attendance logged, proctors
+   assigned, supplies delivered, or accommodations arranged as if it existed
+   (the downstream-side counterpart of ghost/proxy logistics). A session
+   lacking a venue or start is rejected outright — never held, never
+   auto-committed at Phase 3.
+
 
 
 ## Closed :propose-only Allowlist

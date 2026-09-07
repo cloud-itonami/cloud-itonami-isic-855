@@ -16,7 +16,9 @@
   ;; check-in / absent disjoint across enrolled test-takers still passes.
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
-      {:testadmn.test-session/roster #{"s001" "s002" "s003"}})
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002" "s003"}})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
@@ -34,7 +36,9 @@
   ;; ambiguous attendance record: rejected outright, never auto-committed.
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
-      {:testadmn.test-session/roster #{"s001" "s002"}})
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
@@ -65,7 +69,9 @@
   ;; auto-committed, mirroring the enrollment-binding guarantee.
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
-      {:testadmn.test-session/roster #{"s001" "s002"}})
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [operation (op/make-operation :log-attendance-note "sess-001"
                                         {:check-in ["s001"] :absent ["s001"]})
           result (op/execute-operation operation s 3)]

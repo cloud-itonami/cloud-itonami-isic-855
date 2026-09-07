@@ -191,7 +191,9 @@
 (deftest test-proctor-assignment-proposal-phase2-held
   ;; Phase 2 gates :coordinate-proctor-assignment-proposal (approval-gated).
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [operation (op/make-operation :coordinate-proctor-assignment-proposal "sess-001"
                                         {:proctors ["A. Yamada" "B. Sato"]
                                          :rooms ["Gym A" "Room 2"]})
@@ -211,7 +213,9 @@
 (deftest test-proctor-assignment-auto-commits-phase3
   ;; Phase 3 auto-commits clean proposals for this logistics op.
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [operation (op/make-operation :coordinate-proctor-assignment-proposal "sess-001"
                                         {:proctors ["A. Yamada" "B. Sato"]})
           result (op/execute-operation operation s 3)]
@@ -220,7 +224,9 @@
 (deftest test-supply-request-phase2-held
   ;; :coordinate-supply-request (non-content consumables) is gated at Phase 2.
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [operation (op/make-operation :coordinate-supply-request "sess-001"
                                         {:supplies ["answer-sheets" "pencils" "scratch-paper"]})
           result (op/execute-operation operation s 2)]
@@ -242,7 +248,9 @@
   ;; only test-takers enrolled on the session roster (HARD CHECK 6).
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
-      {:testadmn.test-session/roster #{"s001" "s002" "s003"}})
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002" "s003"}})
     (let [operation (op/make-operation :log-attendance-note "sess-001"
                                         {:check-in ["s001" "s002"] :absent ["s003"]})
           result (op/execute-operation operation s 3)]
@@ -358,7 +366,9 @@
   ;; A proctor-assignment proposal is accepted when every named proctor
   ;; declares impartiality explicitly.
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
@@ -405,7 +415,9 @@
 (deftest test-impartial-proctor-auto-commits-phase3
   ;; All-impartial proctor assignment still auto-commits at Phase 3.
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [operation (op/make-operation :coordinate-proctor-assignment-proposal "sess-001"
                                         {:proctors [{:proctor/id "A. Yamada"
                                                      :testadmn.proposal/proctor-impartial? true}
@@ -427,7 +439,9 @@
   ;; op names a test-taker who is enrolled on the session roster (HARD 6).
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
-      {:testadmn.test-session/roster #{"T. Nakagawa"}})
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"T. Nakagawa"}})
     (let [operation (op/make-operation :coordinate-accommodation-logistics "sess-001"
                                         {:accommodations [:time-extension :alternate-format]
                                          :test-taker "T. Nakagawa"})
@@ -449,7 +463,9 @@
   ;; categories (HARD 5) AND an enrolled test-taker (HARD 6).
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
-      {:testadmn.test-session/roster #{"T. Nakagawa"}})
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"T. Nakagawa"}})
     (let [operation (op/make-operation :coordinate-accommodation-logistics "sess-001"
                                         {:accommodations [:reader/scribe :accessible-room]
                                          :test-taker "T. Nakagawa"})
@@ -506,7 +522,9 @@
   ;; enrolled test-taker (HARD 6) -- passes.
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
-      {:testadmn.test-session/roster #{"T. Nakagawa"}})
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"T. Nakagawa"}})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
@@ -584,7 +602,9 @@
   ;; Clean attendance against a full-covering roster passes HARD CHECK 6.
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
-      {:testadmn.test-session/roster #{"s001" "s002" "s003"}})
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002" "s003"}})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
@@ -600,7 +620,9 @@
   ;; may receive accessibility logistics.
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
-      {:testadmn.test-session/roster #{"T. Nakagawa"}})
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"T. Nakagawa"}})
     (let [bad {:testadmn.proposal/id "p1"
                :testadmn.proposal/target-session-id "sess-001"
                :testadmn.proposal/effect :propose
@@ -648,7 +670,9 @@
   ;; Fully-enrolled attendance still auto-commits at Phase 3.
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
-      {:testadmn.test-session/roster #{"s001" "s002"}})
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [operation (op/make-operation :log-attendance-note "sess-001"
                                         {:check-in ["s001"] :absent ["s002"]})
           result (op/execute-operation operation s 3)]
@@ -693,7 +717,9 @@
 (deftest test-hard-check-7-clean-supply-passes
   ;; Only recognized non-content consumables pass HARD CHECK 7.
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
@@ -732,7 +758,9 @@
 (deftest test-clean-supply-auto-commits-phase3
   ;; A supply request naming only recognized consumables still auto-commits.
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [operation (op/make-operation :coordinate-supply-request "sess-001"
                                         {:supplies ["answer-sheets" "pencils"]})
           result (op/execute-operation operation s 3)]

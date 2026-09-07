@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Nineteen HARD, permanent, un-overridable checks
+;; Twenty HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Nineteen HARD checks (un-overridable):
+   Twenty HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -848,6 +848,53 @@ rejected outright — never held, never auto-committed at Phase 3.")
           {:pass? true :reason "safety-referent-matched"})))))
 
 
+
+
+;; === Downstream Logistics Require a Scheduled Session (HARD CHECK 20) ===
+;; ISIC-855 test administration performs four downstream logistics acts --
+;; logging attendance (:log-attendance-note), assigning proctors
+;; (:coordinate-proctor-assignment-proposal), ordering supplies
+;; (:coordinate-supply-request), and arranging accommodations
+;; (:coordinate-accommodation-logistics) -- against an already-SCHEDULED test
+;; session. HARD CHECK 12 (schedule-verified) makes :schedule-test-session
+;; require a concrete venue (:facility-id) and start (:scheduled-start), but it
+;; guards ONLY that op: none of the four downstream ops re-verifies that its
+;; target session is schedulable, and each auto-commits at Phase 3. Without
+;; this check a session that was never scheduled (no room, no time) could still
+;; have attendance logged, proctors assigned, supplies delivered, or
+;; accommodations arranged as if it existed. HARD CHECK 20 closes that: each of
+;; the four downstream ops must target a session carrying a non-blank
+;; :facility-id AND a non-blank :scheduled-start; otherwise it is rejected
+;; outright -- never held, never auto-committed at Phase 3.
+
+(defn- hard-check-20-target-scheduled
+  "HARD CHECK 20: a downstream logistics op (:log-attendance-note,
+   :coordinate-proctor-assignment-proposal, :coordinate-supply-request, or
+   :coordinate-accommodation-logistics) must target a session carrying a
+   concrete venue (:facility-id) and start (:scheduled-start). Applies only
+   to those four ops; every other op passes trivially."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal
+        downstream? (contains? #{:log-attendance-note
+                                 :coordinate-proctor-assignment-proposal
+                                 :coordinate-supply-request
+                                 :coordinate-accommodation-logistics} type)]
+    (if (not downstream?)
+      {:pass? true :reason "no-scheduled-session-required"}
+      (let [session (store/lookup-session store target-session-id)
+            facility (get session :testadmn.test-session/facility-id)
+            start (get session :testadmn.test-session/scheduled-start)]
+        (cond
+          (blank-value? facility)
+          {:pass? false :reason "downstream-session-missing-facility"
+           :session-id target-session-id}
+          (blank-value? start)
+          {:pass? false :reason "downstream-session-missing-start"
+           :session-id target-session-id}
+          :else
+          {:pass? true :reason "target-session-scheduled"})))))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -871,10 +918,11 @@ rejected outright — never held, never auto-committed at Phase 3.")
         check17 (hard-check-17-safety-referent proposal)
         check18 (hard-check-18-schedule-enrolled-roster store proposal)
         check19 (hard-check-19-safety-referent-match proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check8]
+        check20 (hard-check-20-target-scheduled store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
