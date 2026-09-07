@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Thirteen HARD, permanent, un-overridable checks
+- `testadmn.governor` — Fourteen HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Thirteen HARD Checks
+## Governor: Fourteen HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -64,6 +64,16 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    malformed assignment could claim more supervision than exists. A
    duplicated proctor id is rejected outright, never held, never
    auto-committed at Phase 3.
+
+14. **No duplicate attendance test-taker** — a `:log-attendance-note` must not
+   name the same test-taker id more than once within `:check-in` or within
+   `:absent`. HARD CHECK 6 (enrollment binding) collapses both into one set for
+   membership and HARD CHECK 8 requires the two to be disjoint, but neither
+   guards against a repeated id within one field — which sets silently collapse.
+   Repeating an id inflates the nominal attendance count without adding an
+   actual seated body (the attendance-side analog of check 13's duplicated
+   proctor), so a duplicated attendance id is rejected outright, never held,
+   never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 

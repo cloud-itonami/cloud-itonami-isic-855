@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Thirteen HARD, permanent, un-overridable checks
+;; Fourteen HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Thirteen HARD checks (un-overridable):
+   Fourteen HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -75,7 +75,9 @@
       time (:testadmn.test-session/scheduled-start). :schedule-test-session is
       the Phase-1 scheduling act and the first op the closed allowlist
       auto-commits at Phase 3, so an unschedulable session (no room, no time)
-      is rejected outright — never held, never auto-committed at Phase 3.")
+      is rejected outright — never held, never auto-committed at Phase 3.
+  13. No duplicate proctor assignment — a :coordinate-proctor-assignment-proposal must not name any proctor id more than once; doubling an id fabricates a second proctor in the room without adding an actual body.
+  14. No duplicate attendance test-taker — a :log-attendance-note must not name the same test-taker id more than once within :check-in or within :absent; doubling an id   inflates the nominal attendance count without adding an actual seated body. A duplicated attendance id is rejected outright — never held, never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -614,6 +616,39 @@
         {:pass? false :reason "proctor-assignment-duplicate" :proposal proposal}
         {:pass? true :reason "proctors-distinct"}))))
 
+
+;; === No Duplicate Attendance Test-Taker (HARD CHECK 14) ===
+;; ISIC-855 test administration logs per-session attendance as :check-in / :absent.
+;; HARD CHECK 6 (enrollment binding) collects both into ONE set for membership, and
+;; HARD CHECK 8 (self-contradiction) requires the two be disjoint — but neither guards
+;; against the SAME id being repeated WITHIN :check-in (or within :absent), which sets
+;; silently collapse. Repeating an id is the attendance-side analog of HARD CHECK 13’s
+;; duplicated proctor:it inflates the nominal attendance count without adding an actual
+;; seated body. HARD CHECK 14 rejects a note that repeats a test-taker id within
+;; :check-in or within :absent — outright, never held, never auto-committed at Phase 3.
+
+(defn- has-duplicate-attendance-id?
+  "True when an attendance field (:check-in or :absent) lists the same test-taker id more than once (sets normalize this away, so the raw sequence must be inspected)."
+  [proposal k]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})
+        xs   (get data k)]
+    (and (sequential? xs)
+         (> (count xs) (count (distinct xs))))))
+
+(defn- hard-check-14-attendance-no-duplicate-test-taker
+  "HARD CHECK14: a :log-attendance-note must not name the same test-taker id more than once within :check-in or within :absent. Applies only to :log-attendance-note; all other ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :log-attendance-note)
+      {:pass? true :reason "not-an-attendance-note"}
+      (cond
+        (has-duplicate-attendance-id? proposal :check-in)
+        {:pass? false :reason "attendance-duplicate-check-in" :proposal proposal}
+        (has-duplicate-attendance-id? proposal :absent)
+        {:pass? false :reason "attendance-duplicate-absent" :proposal proposal}
+        :else
+        {:pass? true :reason "attendance-test-takers-distinct"}))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -631,10 +666,11 @@
         check11 (hard-check-11-safety-category proposal)
         check12 (hard-check-12-schedule-verified store proposal)
         check13 (hard-check-13-proctor-assignment-no-duplicate proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check8]
+        check14 (hard-check-14-attendance-no-duplicate-test-taker proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
