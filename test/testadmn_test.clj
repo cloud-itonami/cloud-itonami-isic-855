@@ -96,7 +96,7 @@
                     :testadmn.proposal/effect :propose
                     :testadmn.proposal/type :flag-safety-concern
                     :testadmn.proposal/proposal-data
-                    {:concern "proctor observed possible integrity issue"}}
+                    {:concern "proctor observed possible integrity issue" :safety-concerns [:integrity-incident]}}
           result (gov/evaluate-proposal s proposal)]
       (is (true? (:accepted? result)))
       (is (= "flag-safety-concern-escalates" (:reason result))))))
@@ -166,7 +166,7 @@
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001" {})
     (let [operation (op/make-operation :flag-safety-concern "sess-001"
-                                        {:concern "proctor observed integrity issue"})
+                                        {:concern "proctor observed integrity issue" :safety-concerns [:integrity-incident]})
           result (op/execute-operation operation s 2)]
       (is (= :escalated (:status result))))))
 
@@ -312,7 +312,7 @@
   (let [s (store/new-datomic-store)]
     (store/register-session! s "sess-001" {})
     (let [operation (op/make-operation :flag-safety-concern "sess-001"
-                                        {:concern "proctor observed integrity issue"})
+                                        {:concern "proctor observed integrity issue" :safety-concerns [:integrity-incident]})
           result (op/execute-operation operation s 2)]
       (is (= :escalated (:status result))))))
 

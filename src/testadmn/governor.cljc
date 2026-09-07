@@ -464,6 +464,61 @@
         {:pass? false :reason "proctor-assignment-empty" :proposal proposal}
         {:pass? true :reason "proctors-named"}))))
 
+;; === Safety-Concern Category (HARD CHECK 11) ===
+;; ISIC-855 an exam-day safety flag must name WHAT the concern is about: a
+;; facility hazard, a test-taker wellbeing issue, a suspected integrity
+;; incident, an environmental hazard. HARD CHECK3 (scope-exclusion) only
+;; legitimizes :flag-safety-concern -- the type keyword itself carries flagging
+;; keywords, so if passes scope-exclusion and is marked to escalate -- but
+;; never requires the flag to name any actual concern. An empty ''no actual
+;; concern'' with no declared category would pass check 3 and escalate as a
+;; content-free no-op. HARD CHECK11 closes that: a :flag-safety-concern must
+;; declare at least one recognized safety-concern category; otherwise it is
+;; rejected outright, never held, never auto-committed at Phase 3
+;; (safety never auto-commits anyway; this only makes every escalation
+;; triage-actionable).
+
+(def ^:private safety-concern-categories
+  ;; the closed set of recognized exam-day safety-concern categories a
+  ;; :flag-safety-concern may name. Each is a distinct escalation/triage route:
+  ;; facility, test-taker wellbeing, suspected integrity/conduct, environment.
+
+
+  #{:facility-hazard
+    :test-taker-wellbeing
+    :integrity-incident
+    :environmental-hazard})
+
+(defn- safety-concern-entries
+  "Normalize a safety-flag proposal to its list of category keywords. Produces [] (empty) when the flag names no category."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})
+        raw (:safety-concerns data)]
+    (cond
+      (empty? raw) []
+      (keyword? raw) [raw]
+      :else (filter keyword? raw))))
+
+(defn- hard-check-11-safety-category
+  "HARD CHECK11: a :flag-safety-concern must declare at least one recognized
+   safety-concern category. Applies only to :flag-safety-concern; all other ops
+   pass trivially. Any content/grading/eligibility smuggled through a flag payload
+   is already excluded earlier by HARD CHECK3 (scope-exclusion; this check only
+   guards the flag's own triage contract ( a concern category MUST be declared and
+   MUST be one of the closed set))."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :flag-safety-concern)
+      {:pass? true :reason "not-a-safety-concern"}
+      (cond
+        (empty? (safety-concern-entries proposal))
+        {:pass? false :reason "safety-concern-missing-category"
+         :proposal proposal}
+        (not (every? safety-concern-categories (safety-concern-entries proposal)))
+        {:pass? false :reason "safety-concern-unknown-category"
+         :proposal proposal}
+        :else
+        {:pass? true :reason "safety-concern-categorized"}))))
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -478,10 +533,11 @@
         check8 (hard-check-8-attendance-self-contradiction proposal)
         check9 (hard-check-9-proctor-staffing proposal)
         check10 (hard-check-10-proctor-assignment-nonempty proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check8]
+        check11 (hard-check-11-safety-category proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
