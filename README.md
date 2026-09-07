@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Twenty HARD, permanent, un-overridable checks
+- `testadmn.governor` — Twenty-one HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Twenty HARD Checks
+## Governor: Twenty-one HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -146,6 +146,19 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    auto-committed at Phase 3.
 
 
+
+21. **Proctor is not an enrolled test-taker** — a
+   `:coordinate-proctor-assignment-proposal` must not name a proctor who is
+   also a member of the target session's enrolled roster. HARD CHECK 4
+   (impartiality) only inspects the DECLARED `:proctor-impartial?` boolean,
+   and HARD CHECK 6 (enrollment binding) only binds test-taker names on
+   attendance/accommodation ops — never proctor ids. So a session's own
+   enrolled test-taker could be named as its own proctor, pass checks 1–20
+   with a declared-impartial flag, and auto-commit at Phase 3 (the same id
+   both seated examinee and supervisor — an anti-impersonation /
+   ghost-seating vector). HARD CHECK 21 closes it: a named proctor that is an
+   enrolled test-taker of the session is rejected outright, never held, never
+   auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
