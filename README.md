@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Eight HARD, permanent, un-overridable checks
+- `testadmn.governor` — Twelve HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Eight HARD Checks
+## Governor: Twelve HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -25,7 +25,34 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
 5. **Accessibility accommodation is logistics-only** — a `:coordinate-accommodation-logistics` proposal must declare at least one recognized accommodation category (`:time-extension`, `:reader/scribe`, `:accessible-room`, `:alternate-format`, `:assistive-tech`) and must not carry any test-content, grading, eligibility, or policy change. An accommodation arranges HOW a test-taker accesses a session, never WHAT is judged. A category-less, unknown-category, or content-bearing accommodation is rejected outright, never auto-committed at Phase 3.
 6. **Test-taker enrollment binding** — attendance and accommodations may name only people actually registered to sit THAT session. Each session carries a `:testadmn.test-session/roster` (the set of enrolled test-taker ids). A `:log-attendance-note` (every id in `:check-in`/`:absent`) and a `:coordinate-accommodation-logistics` (its `:test-taker`) must each be a member of the target session's roster. A roster-less session, or any proposal naming an un-enrolled/unknown id, is rejected outright — never held, never auto-committed at Phase 3 (anti-impersonation / anti-proxy-testing: you cannot log check-in for, or arrange access for, a fabricated person).
 7. **Bounded supply-consumable allowlist** — a `:coordinate-supply-request` must name at least one recognized non-content consumable (answer sheets, pencils, scratch paper, erasers, timers, etc.) and must not name any unrecognized item. Scope-exclusion (check 3) only blocks content-bearing terms, so without this check an arbitrary unsanctioned consumable would pass and auto-commit at Phase 3. A missing-item or unrecognized-item supply request is rejected outright, never held and never auto-committed at Phase 3.
-8. **Schedule verified** — the target session of a `:schedule-test-session` must carry a concrete venue (`:testadmn.test-session/facility-id`) and a start time (`:testadmn.test-session/scheduled-start`). `:schedule-test-session` is the Phase-1 scheduling act and the first op the allowlist auto-commits at Phase 3, so an unschedulable session (no room, no time) must be rejected outright rather than auto-committed as if a logistics plan existed. A venue-less or start-less schedule is rejected outright, never held and never auto-committed at Phase 3.
+8. **Attendance self-contradiction** — a `:log-attendance-note` must NOT mark the same test-taker as both `:check-in` and `:absent` in the same session; the two sets must be disjoint. Marking the same id in both sets is an ambiguous attendance record (the paper-trail equivalent of proxy/ghost attendance) and is rejected outright — never held, never auto-committed at Phase 3.
+
+9. **Proctor staffing sufficiency** — a `:schedule-test-session` must declare a
+   positive proctor headcount (`:proctors >= 1`) in its proposal-data. An exam
+   cannot be administered with zero proctors — nobody to verify attendance,
+   supervise test-takers, or distribute/collect supplies. HARD CHECK 4
+   (impartiality) only guards the separate `:coordinate-proctor-assignment-proposal`
+   op; it says nothing about whether a session is staffed at all. A schedule
+   naming zero (or omitting) proctors is rejected outright — never held, never
+   auto-committed at Phase 3.
+10. **Non-empty proctor assignment** — a `:coordinate-proctor-assignment-proposal`
+   must name at least one proctor. HARD CHECK 4 (impartiality) only rejects
+   DECLARED-conflicted proctors; a vacuous assignment naming nobody passes
+   checks 1–9 and, at Phase 3, would auto-commit “no one is assigned” for a
+   session HARD CHECK 9 already required to be staffed (`:proctors >= 1`). An
+   empty assignment is rejected outright — never held, never auto-committed.
+
+11. **Safety-concern category** — a `:flag-safety-concern` must declare at least
+   one recognized safety-concern category (`:facility-hazard`,
+   `:test-taker-wellbeing`, `:integrity-incident`, `:environmental-hazard`). HARD
+   CHECK 3 only legitimizes safety flags (the type keyword itself carries the
+   flagging keywords), so an empty ``no actual concern'' would pass scope-exclusion
+   and escalate as a content-free no-op. This check requires the flag to name
+   WHAT, so every escalation is triage-actionable — an empty or
+   unknown-category safety flag is rejected outright, never held, never
+   auto-committed at Phase 3.
+
+12. **Schedule verified** — the target session of a `:schedule-test-session` must carry a concrete venue (`:testadmn.test-session/facility-id`) and a start time (`:testadmn.test-session/scheduled-start`). `:schedule-test-session` is the Phase-1 scheduling act and the first op the allowlist auto-commits at Phase 3, so an unschedulable session (no room, no time) must be rejected outright rather than auto-committed as if a logistics plan existed. A venue-less or start-less schedule is rejected outright, never held and never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 

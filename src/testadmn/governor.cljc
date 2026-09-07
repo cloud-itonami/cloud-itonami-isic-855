@@ -1,15 +1,16 @@
 ;; testadmn.governor — Test Administration Governor
-;; Eight HARD, permanent, un-overridable checks
+;; Twelve HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
+            [clojure.set :as set]
             [testadmn.store :as store]))
 
 (comment
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Eight HARD checks (un-overridable):
+   Twelve HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -42,14 +43,39 @@
       order. An unrecognized or empty supply request is rejected outright
       instead of being auto-committed at Phase 3, because auto-commit must not
       channel silently grant an access arrangement with no HOW documented.
-   8. Schedule verified — the target session of a :schedule-test-session must
+   8. Attendance self-contradiction — a :log-attendance-note must not mark the
+      same test-taker as both :check-in and :absent in the same session; the
+      two sets must be disjoint. A self-contradiction is an ambiguous
+      attendance record (the paper-trail equivalent of proxy/ghost attendance)
+      and is rejected outright — never held, never auto-committed at Phase 3.
+   9. Proctor staffing — a :schedule-test-session must declare a positive
+      proctor headcount (:proctors >= 1) in its proposal-data. An exam cannot
+      be administered with zero proctors — no one to verify attendance,
+      supervise test-takers, or distribute/collect supplies. HARD CHECK 4
+      (impartiality) only guards the separate
+      :coordinate-proctor-assignment-proposal op; it says nothing about
+      whether a session is staffed at all. A schedule naming zero (or
+      omitting) proctors is rejected outright — never held, never
+      auto-committed at Phase 3.
+   10. Proctor assignment non-empty — a :coordinate-proctor-assignment-proposal
+      must name at least one proctor. HARD CHECK 4 (impartiality) only rejects
+      CONFLICTED proctors; it says nothing about an assignment naming NO
+      proctors. A vacuous assignment passes checks 1-9 and — because only
+      :flag-safety-concern is excluded from Phase-3 auto-commit — would
+      auto-commit \"no one is assigned\" for a session that HARD CHECK 9 already
+      required to be staffed. An empty assignment is rejected outright —
+      never held, never auto-committed at Phase 3.
+   11. Safety-concern category — a :flag-safety-concern must declare at least
+      one recognized safety-concern category (:facility-hazard,
+      :test-taker-wellbeing, :integrity-incident, :environmental-hazard).
+      An empty or unknown-category safety flag is rejected outright — never
+      held, never auto-committed at Phase 3.
+   12. Schedule verified — the target session of a :schedule-test-session must
       carry a concrete venue (:testadmn.test-session/facility-id) and a start
       time (:testadmn.test-session/scheduled-start). :schedule-test-session is
       the Phase-1 scheduling act and the first op the closed allowlist
       auto-commits at Phase 3, so an unschedulable session (no room, no time)
-      must be rejected outright rather than auto-committed as if a logistics
-      plan existed. This is a test-administration logistics control: you
-      cannot coordinate a session you cannot place in a room at a time." )
+      is rejected outright — never held, never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -257,7 +283,7 @@
   (let [data (get proposal :testadmn.proposal/proposal-data {})]
     (case (get proposal :testadmn.proposal/type)
       :log-attendance-note
-      (set (concat (:check-in data []) (:absent data [])))
+      (set (concat (when (coll? (:check-in data)) (:check-in data)) (when (coll? (:absent data)) (:absent data))))
       :coordinate-accommodation-logistics
       (when-let [id (:test-taker data)] #{id})
       #{})))
@@ -347,20 +373,178 @@
         {:pass? true :reason "supply-consumables-allowed"}))))
 
 
-;; === Schedule Verified (HARD CHECK 8) ===
+;; === Attendance Self-Contradiction (HARD CHECK 8) ===
+;; ISIC-855 test administration logs attendance per registered test-taker as
+;; :check-in (present) or :absent. A single test-taker cannot simultaneously be
+;; present and absent at the SAME test session -- marking the same id in both
+;; :check-in and :absent is a logistics contradiction (an ambiguous attendance
+;; record is the paper-trail equivalent of proxy/ghost attendance). HARD
+;; CHECK 8 closes a gap in the attendance pipeline: the enrollment-binding
+;; check (HARD CHECK 6) already verifies every id is on the session roster,
+;; but its helper `named-test-taker-ids` collapses :check-in and :absent into
+;; ONE set for that membership test, so a self-contradiction is silently
+;; discarded today. HARD CHECK 8 therefore rejects a :log-attendance-note
+;; whose :check-in and :absent sets are NOT disjoint -- outright, never held,
+;; never auto-committed at Phase 3.
+
+(defn- named-attendance-sets
+  "The :check-in and :absent id sets of an attendance note, each normalized
+   to a set (empty when absent). Kept separate from the membership test so the
+   contradiction between the two stays visible instead of being collapsed."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})]
+    {:check-in (set (when (coll? (:check-in data)) (:check-in data)))
+     :absent   (set (when (coll? (:absent data)) (:absent data)))}))
+
+(defn- hard-check-8-attendance-self-contradiction
+  "HARD CHECK 8: a :log-attendance-note must not mark the same test-taker as
+   both :check-in and :absent. Applies only to :log-attendance-note; all other
+   ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :log-attendance-note)
+      {:pass? true :reason "not-an-attendance-note"}
+      (let [{:keys [check-in absent]} (named-attendance-sets proposal)
+            both (set/intersection check-in absent)]
+        (if (seq both)
+          {:pass? false :reason "attendance-self-contradiction"
+           :test-takers (vec both) :proposal proposal}
+          {:pass? true :reason "attendance-non-contradictory"})))))
+
+
+;; === Proctor Staffing Sufficiency (HARD CHECK 9) ===
+;; ISIC-855 test administration cannot actually run a session with zero
+;; proctors: nobody to verify attendance, supervise test-takers, or
+;; distribute/collect supplies. The allowlist auto-commits clean proposals at
+;; Phase 3 (see phase.cljc: every op except :flag-safety-concern auto-commits
+;; at Phase 3), and :schedule-test-session is that phase-1 scheduling act.
+;; Checks 1-8 never look at staffing: check 1 requires existence/registration,
+;; check 2 requires :effect :propose, check 3 guards scope, checks 4-8 guard
+;; proctor impartiality (a DIFFERENT op), accommodation, enrollment, supply,
+;; attendance. None of them requires a scheduled session to have even ONE
+;; proctor. A `:schedule-test-session` whose proposal-data names :proctors 0
+;; (or omits it) therefore passes checks 1-8 and, at Phase 3, auto-commits an
+;; exam plan with no supervision. HARD CHECK 9 closes that: a
+;; :schedule-test-session must declare a positive integer proctor headcount
+;; (>= 1); otherwise it is rejected outright, never held, never auto-committed
+;; at Phase 3.
+
+(defn- declared-proctor-headcount
+  "The :proctors headcount a :schedule-test-session names in its
+   proposal-data (nil when omitted). Room is where a session runs; proctors
+   is who supervises it."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})]
+    (:proctors data)))
+
+(defn- hard-check-9-proctor-staffing
+  "HARD CHECK 9: a :schedule-test-session must declare a positive proctor
+   headcount (an integer >= 1) in its proposal-data. Applies only to
+   :schedule-test-session; all other ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [n (declared-proctor-headcount proposal)]
+        (if (and (integer? n) (pos? n))
+          {:pass? true :reason "schedule-proctor-staffed"}
+          {:pass? false :reason "schedule-no-proctor-staffing"
+           :proposal proposal})))))
+
+
+;; === Proctor Assignment Non-Empty (HARD CHECK 10) ===
+;; ISIC-855 test administration assigns proctors to a session through the
+;; :coordinate-proctor-assignment-proposal op (approval-gated at Phase 2,
+;; auto-committed at Phase 3). HARD CHECK 4 (impartiality) only rejects
+;; proctors DECLARED conflicted; an assignment naming NO proctor at all passes
+;; checks 1-9 today and, because only :flag-safety-concern is excluded from
+;; Phase-3 auto-commit, would auto-commit a vacuous "no one is assigned" for a
+;; session that HARD CHECK 9 (staffing) already required to be staffed
+;; (:proctors >= 1). HARD CHECK 10 closes that: the assignment must name at
+;; least one proctor; otherwise it is rejected outright, never held, never
+;; auto-committed at Phase 3.
+
+(defn- hard-check-10-proctor-assignment-nonempty
+  "HARD CHECK 10: a :coordinate-proctor-assignment-proposal must name at
+   least one proctor. Applies only to that op; all other ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :coordinate-proctor-assignment-proposal)
+      {:pass? true :reason "not-a-proctor-assignment"}
+      (if (empty? (proctor-entries proposal))
+        {:pass? false :reason "proctor-assignment-empty" :proposal proposal}
+        {:pass? true :reason "proctors-named"}))))
+
+;; === Safety-Concern Category (HARD CHECK 11) ===
+;; ISIC-855 an exam-day safety flag must name WHAT the concern is about: a
+;; facility hazard, a test-taker wellbeing issue, a suspected integrity
+;; incident, an environmental hazard. HARD CHECK3 (scope-exclusion) only
+;; legitimizes :flag-safety-concern -- the type keyword itself carries flagging
+;; keywords, so if passes scope-exclusion and is marked to escalate -- but
+;; never requires the flag to name any actual concern. An empty ''no actual
+;; concern'' with no declared category would pass check 3 and escalate as a
+;; content-free no-op. HARD CHECK11 closes that: a :flag-safety-concern must
+;; declare at least one recognized safety-concern category; otherwise it is
+;; rejected outright, never held, never auto-committed at Phase 3
+;; (safety never auto-commits anyway; this only makes every escalation
+;; triage-actionable).
+
+(def ^:private safety-concern-categories
+  ;; the closed set of recognized exam-day safety-concern categories a
+  ;; :flag-safety-concern may name. Each is a distinct escalation/triage route:
+  ;; facility, test-taker wellbeing, suspected integrity/conduct, environment.
+
+
+  #{:facility-hazard
+    :test-taker-wellbeing
+    :integrity-incident
+    :environmental-hazard})
+
+(defn- safety-concern-entries
+  "Normalize a safety-flag proposal to its list of category keywords. Produces [] (empty) when the flag names no category."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})
+        raw (:safety-concerns data)]
+    (cond
+      (empty? raw) []
+      (keyword? raw) [raw]
+      :else (filter keyword? raw))))
+
+(defn- hard-check-11-safety-category
+  "HARD CHECK11: a :flag-safety-concern must declare at least one recognized
+   safety-concern category. Applies only to :flag-safety-concern; all other ops
+   pass trivially. Any content/grading/eligibility smuggled through a flag payload
+   is already excluded earlier by HARD CHECK3 (scope-exclusion; this check only
+   guards the flag's own triage contract ( a concern category MUST be declared and
+   MUST be one of the closed set))."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :flag-safety-concern)
+      {:pass? true :reason "not-a-safety-concern"}
+      (cond
+        (empty? (safety-concern-entries proposal))
+        {:pass? false :reason "safety-concern-missing-category"
+         :proposal proposal}
+        (not (every? safety-concern-categories (safety-concern-entries proposal)))
+        {:pass? false :reason "safety-concern-unknown-category"
+         :proposal proposal}
+        :else
+        {:pass? true :reason "safety-concern-categorized"}))))
+;; === Schedule Verified (HARD CHECK 12) ===
 ;; ISIC-855 test administration coordinates WHEN and WHERE a test session
 ;; actually runs. :schedule-test-session is the Phase-1 scheduling act and the
 ;; FIRST op the closed allowlist auto-commits at Phase 3 (see phase.cljc:
 ;; every op except :flag-safety-concern auto-commits clean proposals at Phase
-;; 3). Yet none of checks 1-7 verify that the session being scheduled is
+;; 3). Yet none of checks 1-11 verify that the session being scheduled is
 ;; actually schedulable: check 1 only requires the session to exist and be
 ;; registered/verified (a session created with `create-session!` carries
-;; neither a facility nor a start time and still passes), checks 2-7 guard
-;; effect/scope/proctor/accommodation/enrollment/supply. Without this check,
-;; a :schedule-test-session for a session with NO venue (:facility-id) and NO
+;; neither a facility nor a start time and still passes), checks 2-11 guard
+;; effect/scope/impartiality/accommodation/enrollment/supply/attendance/
+;; staffing/assignment/safety-category. Without this check, a
+;; :schedule-test-session for a session with NO venue (:facility-id) and NO
 ;; start time (:scheduled-start) passes the governor and auto-commits as if a
 ;; logistics plan existed — committing an exam you cannot place in a room at a
-;; time. HARD CHECK 8 closes that: the target session of a
+;; time. HARD CHECK 12 closes that: the target session of a
 ;; :schedule-test-session must carry a non-blank :facility-id and a non-blank
 ;; :scheduled-start; otherwise it is rejected outright, never held and never
 ;; auto-committed at Phase 3.
@@ -371,8 +555,8 @@
   (or (nil? v)
       (and (string? v) (str/blank? v))))
 
-(defn- hard-check-8-schedule-verified
-  "HARD CHECK 8: the target session of a :schedule-test-session must carry a
+(defn- hard-check-12-schedule-verified
+  "HARD CHECK 12: the target session of a :schedule-test-session must carry a
    concrete venue (:facility-id) and a start time (:scheduled-start). Applies
    only to :schedule-test-session; all other ops pass trivially."
   [store proposal]
@@ -403,11 +587,15 @@
         check5 (hard-check-5-accommodation-logistics proposal)
         check6 (hard-check-6-test-taker-enrollment store proposal)
         check7 (hard-check-7-supply-allowlist proposal)
-        check8 (hard-check-8-schedule-verified store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check8]
+        check8 (hard-check-8-attendance-self-contradiction proposal)
+        check9 (hard-check-9-proctor-staffing proposal)
+        check10 (hard-check-10-proctor-assignment-nonempty proposal)
+        check11 (hard-check-11-safety-category proposal)
+        check12 (hard-check-12-schedule-verified store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

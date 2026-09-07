@@ -96,7 +96,7 @@
                     :testadmn.proposal/effect :propose
                     :testadmn.proposal/type :flag-safety-concern
                     :testadmn.proposal/proposal-data
-                    {:concern "proctor observed possible integrity issue"}}
+                    {:concern "proctor observed possible integrity issue" :safety-concerns [:integrity-incident]}}
           result (gov/evaluate-proposal s proposal)]
       (is (true? (:accepted? result)))
       (is (= "flag-safety-concern-escalates" (:reason result))))))
@@ -155,7 +155,7 @@
       {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
        :testadmn.test-session/facility-id "facility-101"})
     (let [operation (op/make-operation :schedule-test-session "sess-001"
-                                        {:room "Gym A"})
+                                        {:room "Gym A" :proctors 3})
           result (op/execute-operation operation s 1)]
       (is (= :held-for-approval (:status result))))))
 
@@ -165,7 +165,7 @@
       {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
        :testadmn.test-session/facility-id "facility-101"})
     (let [operation (op/make-operation :schedule-test-session "sess-001"
-                                        {:room "Gym A"})
+                                        {:room "Gym A" :proctors 3})
           result (op/execute-operation operation s 3)]
       (is (= :auto-committed (:status result))))))
 
@@ -173,7 +173,7 @@
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001" {})
     (let [operation (op/make-operation :flag-safety-concern "sess-001"
-                                        {:concern "proctor observed integrity issue"})
+                                        {:concern "proctor observed integrity issue" :safety-concerns [:integrity-incident]})
           result (op/execute-operation operation s 2)]
       (is (= :escalated (:status result))))))
 
@@ -319,7 +319,7 @@
   (let [s (store/new-datomic-store)]
     (store/register-session! s "sess-001" {})
     (let [operation (op/make-operation :flag-safety-concern "sess-001"
-                                        {:concern "proctor observed integrity issue"})
+                                        {:concern "proctor observed integrity issue" :safety-concerns [:integrity-incident]})
           result (op/execute-operation operation s 2)]
       (is (= :escalated (:status result))))))
 

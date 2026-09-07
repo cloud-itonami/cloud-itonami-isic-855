@@ -1,4 +1,4 @@
-;; testadmn_schedule_test — HARD CHECK 8: schedule-verified
+;; testadmn_schedule_test — HARD CHECK 12: schedule-verified
 ;; A :schedule-test-session must reference a session that actually carries a
 ;; concrete venue (:testadmn.test-session/facility-id) and a start time
 ;; (:testadmn.test-session/scheduled-start). Scheduling is the Phase-1 act the
@@ -53,7 +53,7 @@
       (is (= "all-checks-pass" (:reason result))))))
 
 (deftest test-schedule-check-only-guards-schedule-op
-  ;; HARD CHECK 8 applies only to :schedule-test-session. A non-scheduling op
+  ;; HARD CHECK 12 applies only to :schedule-test-session. A non-scheduling op
   ;; (e.g. flag-safety-concern) must pass the schedule check trivially even
   ;; when the task names a venue-less session — the check is about scheduling
   ;; logistics, not about blocking safety reporting.
@@ -65,23 +65,23 @@
                   :testadmn.proposal/proposal-data
                     {:concern "proctor observed possible integrity issue at station 5"}}
         result (gov/evaluate-proposal s proposal)
-        ;; check 8 itself must pass trivially; the overall accept is governed
+        ;; check 12 itself must pass trivially; the overall accept is governed
         ;; by the safety-escalation flow (flag-safety-concern with flagging
         ;; keywords).
-        check8 (nth (:checks result) 7)]
-    (is (true? (:pass? check8)))
-    (is (= "not-a-schedule" (:reason check8)))))
+        check12 (nth (:checks result) 10)]
+    (is (true? (:pass? check12)))
+    (is (= "not-a-schedule" (:reason check12)))))
 
 (deftest test-schedule-missing-session-rejected-by-check-1
   ;; A venue-less/start-less schedule for a completely absent session is caught
-  ;; by HARD CHECK 1 (session-not-found) before check 8 ever sees a record.
+  ;; by HARD CHECK 1 (session-not-found) before check 12 ever sees a record.
   (let [s (store/new-mem-store)
         result (gov/evaluate-proposal s (schedule-proposal "absent-999"))]
     (is (false? (:accepted? result)))
     (is (= "session-not-found" (:reason result)))))
 
 (deftest test-schedule-missing-facility-rejected-at-phase-3
-  ;; The logistics point of HARD CHECK 8: check 1 passes (session exists and is
+  ;; The logistics point of HARD CHECK 12: check 1 passes (session exists and is
   ;; registered) yet an unschedulable session must still never auto-commit at
   ;; Phase 3. Driving through execute-operation proves the hold/rollback path
   ;; rather than just the evaluate callback.
