@@ -22,7 +22,8 @@
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
       {:testadmn.test-session/facility-id "f1"
-       :testadmn.test-session/scheduled-start "2026-01-01T09:00:00Z"})
+       :testadmn.test-session/scheduled-start "2026-01-01T09:00:00Z"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
@@ -42,7 +43,8 @@
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
       {:testadmn.test-session/facility-id "f1"
-       :testadmn.test-session/scheduled-start "2026-01-01T09:00:00Z"})
+       :testadmn.test-session/scheduled-start "2026-01-01T09:00:00Z"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
@@ -63,7 +65,8 @@
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
       {:testadmn.test-session/facility-id "f1"
-       :testadmn.test-session/scheduled-start "2026-01-01T09:00:00Z"})
+       :testadmn.test-session/scheduled-start "2026-01-01T09:00:00Z"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
@@ -81,7 +84,8 @@
   (let [s (store/new-mem-store)]
     (store/register-session! s "sess-001"
       {:testadmn.test-session/facility-id "f1"
-       :testadmn.test-session/scheduled-start "2026-01-01T09:00:00Z"})
+       :testadmn.test-session/scheduled-start "2026-01-01T09:00:00Z"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [operation (op/make-operation :coordinate-proctor-assignment-proposal "sess-001"
                                         {:proctors [{:proctor/id "A. Yamada"
                                                      :testadmn.proposal/proctor-impartial? true}

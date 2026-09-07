@@ -37,7 +37,8 @@
     (store/register-session! s "sess-001"
       {:testadmn.test-session/name "SAT Administration 2026-07-15"
        :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
-       :testadmn.test-session/facility-id "facility-101"})
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [result (gov/evaluate-proposal s
                   (schedule-proposal {:room "Gym A" :proctors 3}))]
       (is (true? (:accepted? result)))
@@ -101,7 +102,8 @@
     (store/register-session! s "sess-001"
       {:testadmn.test-session/name "SAT Administration 2026-07-15"
        :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
-       :testadmn.test-session/facility-id "facility-101"})
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002"}})
     (let [operation (op/make-operation :schedule-test-session "sess-001"
                                         {:room "Gym A" :proctors 3})
           result (op/execute-operation operation s 3)]

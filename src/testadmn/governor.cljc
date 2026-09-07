@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Seventeen HARD, permanent, un-overridable checks
+;; Eighteen HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Seventeen HARD checks (un-overridable):
+   Eighteen HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -92,7 +92,15 @@
       attendance id, and HARD CHECK 15's duplicated supply item: it inflates
       the nominal accommodation count without adding an actual access
       arrangement. A duplicated accommodation category is rejected outright
-      — never held, never auto-committed at Phase 3.")
+      — never held, never auto-committed at Phase 3.
+  18. Schedule enrolled roster — the target session of a
+      :schedule-test-session must carry a non-empty enrolled test-taker
+      roster. HARD CHECK 6 (enrollment binding) only constrains
+      attendance/accommodation proposals that NAME a test-taker; a
+      :schedule-test-session names none, so a roster-less session passes
+      checks 1-17 and, at Phase 3, auto-commits a plan to run an exam
+      nobody is enrolled to sit. A session with no enrolled roster is
+      rejected outright — never held, never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -768,6 +776,34 @@
         {:pass? false :reason "safety-concern-missing-referent" :proposal proposal}
         {:pass? true :reason "safety-concern-referenced"}))))
 
+;; === Enrolled Test-Taker Roster (HARD CHECK 18) ===
+;; ISIC-855 a :schedule-test-session names no test-taker of its own, so HARD
+;; CHECK 6 (enrollment binding) never sees it -- attendance/accommodation are
+;; the only proposals that NAME test-takers. Yet scheduling is the phase-1
+;; act that auto-commits at Phase 3: a session whose target has NO enrolled
+;; roster (no one registered to sit it) passes every check 1-17 and commits
+;; as if a seated examinee population existed. That is the scheduling-side
+;; analog of ghost/proxy testing -- the logistics plan exists but nobody is
+;; enrolled to take the exam. HARD CHECK 18 closes it: the target session of
+;; a :schedule-test-session must carry a NON-EMPTY enrolled test-taker
+;; roster; otherwise it is rejected outright -- never held, never
+;; auto-committed at Phase 3.
+
+(defn- hard-check-18-schedule-enrolled-roster
+  "HARD CHECK 18: the target session of a :schedule-test-session must carry a
+   non-empty :testadmn.test-session/roster. Applies only to
+   :schedule-test-session; every other op passes trivially."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [session (store/lookup-session store target-session-id)
+            roster (session-roster-set session)]
+        (if (empty? roster)
+          {:pass? false :reason "schedule-no-enrolled-roster"
+           :session-id target-session-id}
+          {:pass? true :reason "schedule-roster-enrolled"})))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -789,10 +825,11 @@
         check15 (hard-check-15-supply-no-duplicate proposal)
         check16 (hard-check-16-accommodation-no-duplicate proposal)
         check17 (hard-check-17-safety-referent proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check8]
+        check18 (hard-check-18-schedule-enrolled-roster store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
