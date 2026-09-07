@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Eighteen HARD, permanent, un-overridable checks
+- `testadmn.governor` — Nineteen HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Eighteen HARD Checks
+## Governor: Nineteen HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -118,6 +118,19 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
     analog of ghost/proxy testing). A schedule targeting a session with no
     enrolled roster is rejected outright — never held, never auto-committed
     at Phase 3.
+
+19. **Safety-referent category match** — a `:flag-safety-concern` must carry
+   the referent kind its category implies. HARD CHECK 11 only requires a
+   recognized CATEGORY and HARD CHECK 17 only requires SOME referent
+   (`:facility-id` and/or `:test-taker-id`); neither ties the referent's type
+   to the category, so a `:facility-hazard` flagged with only a person id
+   (or a `:test-taker-wellbeing` flagged with only a room id) would still
+   escalate into the wrong triage lane. This check closes that: a
+   facility-class category (`:facility-hazard`, `:environmental-hazard`)
+   **must** name a non-blank `:facility-id`, and `:test-taker-wellbeing`
+   **must** name a non-blank `:test-taker-id`. A category whose required
+   referent kind is absent is rejected outright — never held, never
+   auto-committed at Phase 3.
 
 
 ## Closed :propose-only Allowlist
