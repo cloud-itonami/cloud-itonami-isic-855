@@ -46,7 +46,7 @@
           ;; Test safety concern - should escalate
           safety-result
           (let [operation (op/make-operation :flag-safety-concern "session-001"
-                                              {:concern "proctor observed possible integrity issue at station 5" :safety-concerns [:integrity-incident]})]
+                                              {:concern "proctor observed possible integrity issue at station 5" :safety-concerns [:integrity-incident] :facility-id "station-5"})]
             (op/execute-operation operation s 2))]
 
       {:phase-0 phase-0-result

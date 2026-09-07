@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Sixteen HARD, permanent, un-overridable checks
+;; Seventeen HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Sixteen HARD checks (un-overridable):
+   Seventeen HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -729,6 +729,45 @@
         {:pass? false :reason "accommodation-duplicate-category" :proposal proposal}
         {:pass? true :reason "accommodation-rules-distinct"}))))
 
+
+;; === Safety-Concern Referent (HARD CHECK 17) ===
+;; ISIC-855 an exam-day safety flag must name WHO/WHAT the concern is about,
+;; not just a category. HARD CHECK 11 requires a recognized CATEGORY
+;; (:facility-hazard, :test-taker-wellbeing, ...), but a flag that names a
+;; category yet no concrete referent -- no :facility-id, no :test-taker-id --
+;; still escalates (HARD CHECK 3 legitimizes every flag carrying flagging
+;; keywords) as a content-free no-op that triage cannot route to any room or
+;; person. HARD CHECK 17 closes that: a :flag-safety-concern must name at
+;; least one concrete referent -- a non-blank :facility-id (facility /
+;; environmental hazards) and/or a :test-taker-id (wellbeing / integrity
+;; concern about a person). A referent-less flag is rejected outright, never
+;; held, never auto-committed at Phase 3 (safety never auto-commits anyway;
+;; this makes every escalation triage-actionable to a specific room or
+;; test-taker).
+
+(defn- safety-referents
+  "The concrete referent(s) a safety-flag names so triage knows WHERE or WHO:
+   a non-blank :facility-id and/or :test-taker-id in the proposal-data."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})]
+    (filter #(not (blank-value? %))
+            [(:facility-id data) (:test-taker-id data)])))
+
+(defn- hard-check-17-safety-referent
+  "HARD CHECK 17: a :flag-safety-concern must name at least one concrete
+   referent (:facility-id and/or :test-taker-id). Applies only to
+   :flag-safety-concern; all other ops pass trivially. Note: scope-exclusion
+   (HARD CHECK 3) only legitimizes flagging keywords and blocks forbidden
+   TERMS; it neither requires nor bounds a referent -- so without this check a
+   category-only flag would still escalate untriageable."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :flag-safety-concern)
+      {:pass? true :reason "not-a-safety-concern"}
+      (if (empty? (safety-referents proposal))
+        {:pass? false :reason "safety-concern-missing-referent" :proposal proposal}
+        {:pass? true :reason "safety-concern-referenced"}))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -749,10 +788,11 @@
         check14 (hard-check-14-attendance-no-duplicate-test-taker proposal)
         check15 (hard-check-15-supply-no-duplicate proposal)
         check16 (hard-check-16-accommodation-no-duplicate proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check8]
+        check17 (hard-check-17-safety-referent proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
