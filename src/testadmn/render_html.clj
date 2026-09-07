@@ -82,7 +82,7 @@
    {:phase 3 :op :log-attendance-note :session "session-001"
     :data {:checked-in 218 :absent 6}}
    {:phase 3 :op :flag-safety-concern :session "session-001"
-    :data {:concern "proctor observed possible integrity issue at station 5"}}
+    :data {:concern "proctor observed possible integrity issue at station 5" :safety-concerns [:integrity-incident]}}
    {:phase 3 :op :schedule-test-session :session "session-002"
     :data (store/demo-rooms "session-002")}
 

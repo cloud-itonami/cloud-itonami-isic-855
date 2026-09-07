@@ -16,7 +16,7 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Ten HARD Checks
+## Governor: Eleven HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -41,6 +41,16 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    checks 1–9 and, at Phase 3, would auto-commit “no one is assigned” for a
    session HARD CHECK 9 already required to be staffed (`:proctors >= 1`). An
    empty assignment is rejected outright — never held, never auto-committed.
+
+11. **Safety-concern category** — a `:flag-safety-concern` must declare at least
+   one recognized safety-concern category (`:facility-hazard`,
+   `:test-taker-wellbeing`, `:integrity-incident`, `:environmental-hazard`). HARD
+   CHECK 3 only legitimizes safety flags (the type keyword itself carries the
+   flagging keywords), so an empty ``no actual concern'' would pass scope-exclusion
+   and escalate as a content-free no-op. This check requires the flag to name
+   WHAT, so every escalation is triage-actionable — an empty or
+   unknown-category safety flag is rejected outright, never held, never
+   auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
