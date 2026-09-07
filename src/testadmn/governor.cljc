@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Nine HARD, permanent, un-overridable checks
+;; Ten HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Nine HARD checks (un-overridable):
+   Ten HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -56,7 +56,15 @@
       :coordinate-proctor-assignment-proposal op; it says nothing about
       whether a session is staffed at all. A schedule naming zero (or
       omitting) proctors is rejected outright — never held, never
-      auto-committed at Phase 3.")
+      auto-committed at Phase 3.
+   10. Proctor assignment non-empty — a :coordinate-proctor-assignment-proposal
+      must name at least one proctor. HARD CHECK 4 (impartiality) only rejects
+      CONFLICTED proctors; it says nothing about an assignment naming NO
+      proctors. A vacuous assignment passes checks 1-9 and — because only
+      :flag-safety-concern is excluded from Phase-3 auto-commit — would
+      auto-commit \"no one is assigned\" for a session that HARD CHECK 9 already
+      required to be staffed. An empty assignment is rejected outright —
+      never held, never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -433,6 +441,29 @@
            :proposal proposal})))))
 
 
+;; === Proctor Assignment Non-Empty (HARD CHECK 10) ===
+;; ISIC-855 test administration assigns proctors to a session through the
+;; :coordinate-proctor-assignment-proposal op (approval-gated at Phase 2,
+;; auto-committed at Phase 3). HARD CHECK 4 (impartiality) only rejects
+;; proctors DECLARED conflicted; an assignment naming NO proctor at all passes
+;; checks 1-9 today and, because only :flag-safety-concern is excluded from
+;; Phase-3 auto-commit, would auto-commit a vacuous "no one is assigned" for a
+;; session that HARD CHECK 9 (staffing) already required to be staffed
+;; (:proctors >= 1). HARD CHECK 10 closes that: the assignment must name at
+;; least one proctor; otherwise it is rejected outright, never held, never
+;; auto-committed at Phase 3.
+
+(defn- hard-check-10-proctor-assignment-nonempty
+  "HARD CHECK 10: a :coordinate-proctor-assignment-proposal must name at
+   least one proctor. Applies only to that op; all other ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :coordinate-proctor-assignment-proposal)
+      {:pass? true :reason "not-a-proctor-assignment"}
+      (if (empty? (proctor-entries proposal))
+        {:pass? false :reason "proctor-assignment-empty" :proposal proposal}
+        {:pass? true :reason "proctors-named"}))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -446,10 +477,11 @@
         check7 (hard-check-7-supply-allowlist proposal)
         check8 (hard-check-8-attendance-self-contradiction proposal)
         check9 (hard-check-9-proctor-staffing proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check8]
+        check10 (hard-check-10-proctor-assignment-nonempty proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

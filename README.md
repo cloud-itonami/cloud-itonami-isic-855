@@ -16,7 +16,7 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Nine HARD Checks
+## Governor: Ten HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -35,6 +35,12 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    op; it says nothing about whether a session is staffed at all. A schedule
    naming zero (or omitting) proctors is rejected outright — never held, never
    auto-committed at Phase 3.
+10. **Non-empty proctor assignment** — a `:coordinate-proctor-assignment-proposal`
+   must name at least one proctor. HARD CHECK 4 (impartiality) only rejects
+   DECLARED-conflicted proctors; a vacuous assignment naming nobody passes
+   checks 1–9 and, at Phase 3, would auto-commit “no one is assigned” for a
+   session HARD CHECK 9 already required to be staffed (`:proctors >= 1`). An
+   empty assignment is rejected outright — never held, never auto-committed.
 
 ## Closed :propose-only Allowlist
 
