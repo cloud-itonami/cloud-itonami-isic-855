@@ -32,7 +32,9 @@
 
 (deftest test-nonempty-proctor-maps-pass
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [result (gov/evaluate-proposal s
                   (pa-proposal {:proctors [{:proctor/id "A. Yamada"
                                             :testadmn.proposal/proctor-impartial? true}]}))]
@@ -42,7 +44,9 @@
 
 (deftest test-nonempty-string-proctors-pass
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [result (gov/evaluate-proposal s (pa-proposal {:proctors ["A. Smith"]}))]
       (is (true? (:accepted? result)))
       (is (= "proctors-named" (:reason (pa10-result result)))))))
@@ -88,7 +92,9 @@
 
 (deftest test-nonempty-proctor-assignment-still-auto-commits-phase3
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [operation (op/make-operation :coordinate-proctor-assignment-proposal
                                        "sess-001" {:proctors ["A. Smith"]})
           result (op/execute-operation operation s 3)]
