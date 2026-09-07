@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Seven HARD, permanent, un-overridable checks
+;; Eight HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -9,7 +9,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Seven HARD checks (un-overridable):
+   Eight HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -41,7 +41,15 @@
       TERMS; it does not bound WHICH non-content consumables a request may
       order. An unrecognized or empty supply request is rejected outright
       instead of being auto-committed at Phase 3, because auto-commit must not
-      channel silently grant an access arrangement with no HOW documented.")
+      channel silently grant an access arrangement with no HOW documented.
+   8. Schedule verified — the target session of a :schedule-test-session must
+      carry a concrete venue (:testadmn.test-session/facility-id) and a start
+      time (:testadmn.test-session/scheduled-start). :schedule-test-session is
+      the Phase-1 scheduling act and the first op the closed allowlist
+      auto-commits at Phase 3, so an unschedulable session (no room, no time)
+      must be rejected outright rather than auto-committed as if a logistics
+      plan existed. This is a test-administration logistics control: you
+      cannot coordinate a session you cannot place in a room at a time." )
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -339,6 +347,51 @@
         {:pass? true :reason "supply-consumables-allowed"}))))
 
 
+;; === Schedule Verified (HARD CHECK 8) ===
+;; ISIC-855 test administration coordinates WHEN and WHERE a test session
+;; actually runs. :schedule-test-session is the Phase-1 scheduling act and the
+;; FIRST op the closed allowlist auto-commits at Phase 3 (see phase.cljc:
+;; every op except :flag-safety-concern auto-commits clean proposals at Phase
+;; 3). Yet none of checks 1-7 verify that the session being scheduled is
+;; actually schedulable: check 1 only requires the session to exist and be
+;; registered/verified (a session created with `create-session!` carries
+;; neither a facility nor a start time and still passes), checks 2-7 guard
+;; effect/scope/proctor/accommodation/enrollment/supply. Without this check,
+;; a :schedule-test-session for a session with NO venue (:facility-id) and NO
+;; start time (:scheduled-start) passes the governor and auto-commits as if a
+;; logistics plan existed — committing an exam you cannot place in a room at a
+;; time. HARD CHECK 8 closes that: the target session of a
+;; :schedule-test-session must carry a non-blank :facility-id and a non-blank
+;; :scheduled-start; otherwise it is rejected outright, never held and never
+;; auto-committed at Phase 3.
+
+(defn- blank-value?
+  "True when a schedule field is nil, or the empty string, or whitespace-only."
+  [v]
+  (or (nil? v)
+      (and (string? v) (str/blank? v))))
+
+(defn- hard-check-8-schedule-verified
+  "HARD CHECK 8: the target session of a :schedule-test-session must carry a
+   concrete venue (:facility-id) and a start time (:scheduled-start). Applies
+   only to :schedule-test-session; all other ops pass trivially."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [session (store/lookup-session store target-session-id)
+            facility (get session :testadmn.test-session/facility-id)
+            start (get session :testadmn.test-session/scheduled-start)]
+        (cond
+          (blank-value? facility)
+          {:pass? false :reason "schedule-missing-facility"
+           :session-id target-session-id}
+          (blank-value? start)
+          {:pass? false :reason "schedule-missing-start"
+           :session-id target-session-id}
+          :else
+          {:pass? true :reason "schedule-verified"})))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -350,10 +403,11 @@
         check5 (hard-check-5-accommodation-logistics proposal)
         check6 (hard-check-6-test-taker-enrollment store proposal)
         check7 (hard-check-7-supply-allowlist proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7]
+        check8 (hard-check-8-schedule-verified store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7))
+                       (:pass? check7) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

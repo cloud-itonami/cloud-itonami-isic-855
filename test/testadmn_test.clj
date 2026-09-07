@@ -103,7 +103,10 @@
 
 (deftest test-valid-proposal-passes-all-checks
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/name "SAT Administration 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
@@ -148,7 +151,9 @@
 
 (deftest test-operation-execution-phase-1-held
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [operation (op/make-operation :schedule-test-session "sess-001"
                                         {:room "Gym A"})
           result (op/execute-operation operation s 1)]
@@ -156,7 +161,9 @@
 
 (deftest test-operation-execution-phase-3-auto-commit
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [operation (op/make-operation :schedule-test-session "sess-001"
                                         {:room "Gym A"})
           result (op/execute-operation operation s 3)]
@@ -367,13 +374,15 @@
   ;; ops (e.g. :schedule-test-session with a :proctors plan-of-strings, as the
   ;; demo seed uses) pass check4 trivially.
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
                     :testadmn.proposal/type :schedule-test-session
                     :testadmn.proposal/proposal-data {:room "Gym A" :proctors 3}}
-          check4 (-> (gov/evaluate-proposal s proposal) :checks last)]
+          check4 (nth (:checks (gov/evaluate-proposal s proposal)) 3)]
       (is (true? (:pass? check4))))))
 
 (deftest test-conflicted-proctor-never-auto-committed-phase3
@@ -609,13 +618,15 @@
   ;; HARD CHECK 6 only governs attendance and accommodation; scheduling and
   ;; other ops pass the check trivially even on a roster-less session.
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
                     :testadmn.proposal/type :schedule-test-session
                     :testadmn.proposal/proposal-data {:room "Gym A"}}
-          check6 (-> (gov/evaluate-proposal s proposal) :checks last)]
+          check6 (nth (:checks (gov/evaluate-proposal s proposal)) 5)]
       (is (true? (:pass? check6))))))
 
 (deftest test-unenrolled-attendance-never-auto-commits-phase3
@@ -693,13 +704,15 @@
 (deftest test-hard-check-7-non-supply-ops-unaffected
   ;; HARD CHECK 7 only governs :coordinate-supply-request; others pass trivially.
   (let [s (store/new-mem-store)]
-    (store/register-session! s "sess-001" {})
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
     (let [proposal {:testadmn.proposal/id "p1"
                     :testadmn.proposal/target-session-id "sess-001"
                     :testadmn.proposal/effect :propose
                     :testadmn.proposal/type :schedule-test-session
                     :testadmn.proposal/proposal-data {:room "Gym A"}}
-          check6 (-> (gov/evaluate-proposal s proposal) :checks last)]
+          check6 (nth (:checks (gov/evaluate-proposal s proposal)) 6)]
       (is (true? (:pass? check6))))))
 
 (deftest test-unrecognized-supply-never-auto-commits-phase3
