@@ -52,6 +52,13 @@
 (defprotocol TestAdmnStore
   "Store interface for test administration operations."
   (lookup-session [store session-id])
+  (list-sessions [store]
+    "All session records currently in the store, as a vector. Backs
+    `governor/hard-check-25`'s venue-time double-booking detection: the
+    collision is a property of the SESSION POPULATION (which rooms are
+    already occupied at which times), not of any single record, so the
+    governor needs the same read seam over both backends that
+    `lookup-session` gives it for one record.")
   (register-session! [store session-id session-data])
   (create-session! [store session-id session-data]
     "Create a session record with EXPLICIT :registered?/:verified? flags
@@ -85,7 +92,9 @@
   (log-proposal! [_this proposal]
     (swap! proposals-atom conj proposal))
   (proposal-log [_this]
-    @proposals-atom))
+    @proposals-atom)
+  (list-sessions [_this]
+    (->> @sessions-atom vals (sort-by :testadmn.test-session/id) vec)))
 
 (defn new-mem-store []
   (->MemStore (atom {}) (atom [])))
@@ -140,7 +149,12 @@
   (proposal-log [_this]
     (->> (d/q '[:find ?s ?r :where [?e :proposal-log/seq ?s] [?e :proposal-log/record ?r]] (d/db conn))
          (sort-by first)
-         (mapv (comp dec* second)))))
+         (mapv (comp dec* second))))
+  (list-sessions [_this]
+    (->> (d/q '[:find ?sid :where [?e :testadmn.test-session/id ?sid]] (d/db conn))
+         (map first)
+         (sort)
+         (mapv #(lookup-session _this %)))))
 
 (defn new-datomic-store
   "A DatomicStore (langchain.db backend), empty until sessions/proposals are

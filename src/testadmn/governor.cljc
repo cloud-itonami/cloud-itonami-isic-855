@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Twenty-four HARD, permanent, un-overridable checks
+;; Twenty-five HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Twenty-four HARD checks (un-overridable):
+   Twenty-five HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -112,7 +112,21 @@
       passes checks 4/10/13/21 and auto-commits at Phase 3 a supervisor with no
       identity (the same fabricated-body inflation as a duplicated id, via
       blindness). A blank proctor id is rejected outright -- never held, never
-      auto-committed at Phase 3.")
+      auto-committed at Phase 3.
+  25. No venue-time double-booking -- ISIC-855 one room hosts ONE exam at a
+      time. The target session of a :schedule-test-session must not share its
+      (:facility-id, :scheduled-start) pair with any OTHER registered session:
+      HARD CHECK 12 (schedule-verified) requires the venue and start to be
+      PRESENT, and HARD CHECK 18 requires an enrolled roster, but none asks
+      whether that room is already occupied at that time. A schedule that
+      books facility-101 at 2026-07-15T09:00:00Z while facility-101 is already
+      registered for a different exam at that same instant passes checks 1-24
+      and auto-commits at Phase 3 two exams into one room -- the collision
+      surfaces only at check-in, when the second test-taker queue arrives.
+      Note the pair must be CONCRETE to collide: a blank facility or start
+      fails HARD CHECK 12 first, so a venue-less session can never mask an
+      occupied room. A colliding schedule is rejected outright -- never held,
+      never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -1052,6 +1066,67 @@
         {:pass? false :reason "proctor-id-blank" :proposal proposal}
         {:pass? true :reason "proctor-id-non-blank"}))))
 
+
+;; === No Venue-Time Double-Booking (HARD CHECK 25) ===
+;; ISIC-855 one physical room hosts ONE exam at a time: two standardized test
+;; sessions scheduled into the same facility at the same start instant is a
+;; logistics collision -- the governor's paper trail reads fine, but the room
+;; cannot. HARD CHECK 12 (schedule-verified) requires the target session's
+;; :facility-id and :scheduled-start to be PRESENT, and HARD CHECK 18 requires
+;; a non-empty enrolled roster -- but no check has ever compared the target's
+;; (venue, time) pair against the REST of the session population. A
+;; :schedule-test-session whose target shares facility-101 at
+;; 2026-07-15T09:00:00Z with another registered session therefore passes
+;; checks 1-24 and auto-commits at Phase 3 a double-booking that surfaces as
+;; a physical conflict at check-in. HARD CHECK 25 closes that: the target
+;; session's (:facility-id, :scheduled-start) pair must not collide with any
+;; OTHER registered session in the store; otherwise it is rejected outright,
+;; never held, never auto-committed at Phase 3. Only concrete pairs can
+;; collide: check 12 already rejects blank venues/times, so an unscheduled or
+;; venue-less session can never mask an occupied room.
+
+(defn- venue-time-key
+  "The (facility-id, scheduled-start) occupancy pair of a session record,
+   normalized to strings. A session missing either half yields nil -- such a
+   session cannot occupy anything (and a TARGET missing either half is
+   already rejected earlier by HARD CHECK 12)."
+  [session]
+  (let [facility (get session :testadmn.test-session/facility-id)
+        start (get session :testadmn.test-session/scheduled-start)]
+    (when-not (or (blank-value? facility) (blank-value? start))
+      [(str facility) (str start)])))
+
+(defn- hard-check-25-no-venue-time-collision
+  "HARD CHECK 25: the target session of a :schedule-test-session must not
+   share its (:facility-id, :scheduled-start) pair with any OTHER registered
+   session. Applies only to :schedule-test-session; all other ops pass
+   trivially. Reads the whole session population via store/list-sessions --
+   the occupancy conflict is a property of the set of sessions, not of the
+   target alone."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [target (store/lookup-session store target-session-id)
+            tk (venue-time-key target)]
+        (if-not tk
+          ;; blank venue/start on the TARGET is check 12's decision, not this one
+          {:pass? true :reason "schedule-venue-time-unasserted"}
+          (let [collisions (->> (store/list-sessions store)
+                                (filter :testadmn.test-session/registered?)
+                                (remove #(= (:testadmn.test-session/id %)
+                                            target-session-id))
+                                (filter #(= (venue-time-key %) tk))
+                                (map :testadmn.test-session/id)
+                                vec)]
+            (if (seq collisions)
+              {:pass? false :reason "schedule-venue-time-collision"
+               :session-id target-session-id
+               :collides-with collisions
+               :venue-time tk
+               :proposal proposal}
+              {:pass? true :reason "schedule-venue-time-free"})))))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -1080,10 +1155,11 @@
         check22 (hard-check-22-attendance-complete store proposal)
         check23 (hard-check-23-safety-no-duplicate-category proposal)
         check24 (hard-check-24-proctor-id-non-blank proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check8]
+        check25 (hard-check-25-no-venue-time-collision store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Twenty-four HARD, permanent, un-overridable checks
+- `testadmn.governor` — Twenty-five HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Twenty-four HARD Checks
+## Governor: Twenty-five HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -183,6 +183,21 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    NO identity — the same fabricated-body inflation as a duplicated id, but
    achieved via blindness instead of repetition. A blank proctor id is rejected
    outright — never held, never auto-committed at Phase 3.
+
+25. **No venue-time double-booking** — ISIC-855 one room hosts ONE exam at a
+   time. The target session of a `:schedule-test-session` must not share its
+   (`:facility-id`, `:scheduled-start`) pair with any OTHER registered session
+   in the store. HARD CHECK 12 (schedule-verified) only requires the venue and
+   the start to be PRESENT, and HARD CHECK 18 only requires an enrolled roster
+   — but none asks whether that room is already OCCUPIED at that instant. A
+   schedule that books `facility-101` at `2026-07-15T09:00:00Z` while
+   `facility-101` is already registered for a different exam at exactly that
+   time passes checks 1–24 and, at Phase 3, would auto-commit two exams into
+   one room — a collision that only surfaces physically at check-in, when the
+   second test-taker queue arrives. A blank venue or start cannot mask the
+   conflict: such a target is rejected earlier by HARD CHECK 12, so only
+   concrete (venue, time) pairs can collide. A double-booked schedule is
+   rejected outright — never held, never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
