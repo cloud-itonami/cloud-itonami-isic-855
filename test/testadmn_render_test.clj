@@ -9,7 +9,7 @@
 ;; stack (advisor -> operation -> governor -> store -> console) is covered.
 
 (ns testadmn-render-test
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.test :refer :all]
             [testadmn.advisor :as advisor]
             [testadmn.store :as store]

@@ -2,7 +2,7 @@
 ;; Twenty-six HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.set :as set]
             [testadmn.store :as store]))
 
@@ -157,14 +157,14 @@
 (defn- contains-forbidden?
   "Check if any forbidden term appears in keyword or proposal data."
   [proposal]
-  (let [proposal-str (str/lower-case (str proposal))]
+  (let [proposal-str (str/lower (str proposal))]
     (some #(str/includes? proposal-str %) forbidden-keywords)))
 
 (defn- is-legitimate-flag-safety?
   "Check if this is a legitimate :flag-safety-concern that escalates."
   [proposal]
   (let [{:keys [testadmn.proposal/type]} proposal
-        proposal-str (str/lower-case (str proposal))]
+        proposal-str (str/lower (str proposal))]
     (and (= type :flag-safety-concern)
          (some #(str/includes? proposal-str %) flagging-keywords)
          (not (contains-forbidden? proposal)))))
@@ -418,7 +418,7 @@
    consumable set (case-insensitive)."
   [proposal]
   (let [items (supply-item-entries proposal)]
-    (some #(not (contains? allowed-consumables (str/lower-case %))) items)))
+    (some #(not (contains? allowed-consumables (str/lower %))) items)))
 
 (defn- hard-check-7-supply-allowlist
   "HARD CHECK 7: a :coordinate-supply-request must name at least one
@@ -734,7 +734,7 @@
   "True when a supply request lists the same consumable more than once
    (case-insensitive match, mirroring HARD CHECK7's normalization. "
   [proposal]
-  (let [items (mapv str/lower-case (supply-item-entries proposal))]
+  (let [items (mapv str/lower (supply-item-entries proposal))]
     (> (count items) (count (distinct items)))))
 
 (defn- hard-check-15-supply-no-duplicate
