@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Twenty-three HARD, permanent, un-overridable checks
+- `testadmn.governor` — Twenty-four HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Twenty-three HARD Checks
+## Governor: Twenty-four HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -172,6 +172,17 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    distinct concerns — and thus the escalation/triage workload — without adding
    an actual separate incident to route. A duplicated safety-concern category
    is rejected outright — never held, never auto-committed at Phase 3.
+
+24. **Proctor id non-blank** — a
+   `:coordinate-proctor-assignment-proposal` must name only proctors with a
+   NON-BLANK `:proctor/id`. HARD CHECK 10 requires the list to be non-empty,
+   HARD CHECK 13 requires the ids to be distinct, and HARD CHECK 21 forbids an
+   enrolled test-taker — but none rejects an entry whose id is nil, `""`, or
+   whitespace-only. A map-form `{:proctor/id "" :testadmn.proposal/proctor-impartial? true}`
+   passes checks 4/10/13/21 and, at Phase 3, would auto-commit a supervisor with
+   NO identity — the same fabricated-body inflation as a duplicated id, but
+   achieved via blindness instead of repetition. A blank proctor id is rejected
+   outright — never held, never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 

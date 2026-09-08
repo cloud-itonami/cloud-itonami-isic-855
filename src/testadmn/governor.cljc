@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Twenty-three HARD, permanent, un-overridable checks
+;; Twenty-four HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Twenty-three HARD checks (un-overridable):
+   Twenty-four HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -102,7 +102,17 @@
       nobody is enrolled to sit. A session with no enrolled roster is
         19. Safety-referent category match — a :flag-safety-concern must carry the referent kind its category implies: a facility-class category (:facility-hazard, :environmental-hazard) MUST name a non-blank :facility-id, and :test-taker-wellbeing MUST name a non-blank :test-taker-id. HARD CHECK 11 only requires a recognized category and HARD CHECK 17 only requires SOME referent; neither ties the referent's TYPE to the category, so a facility-hazard flagged with only a person id (or a wellbeing concern flagged with only a room id) still escalates into the wrong triage lane. A category whose required referent kind is absent is rejected outright — never held, never auto-committed at Phase 3.
   21. Proctor not an enrolled test-taker — a :coordinate-proctor-assignment-proposal must not name a proctor who is also on the target session’s enrolled roster; the same person cannot be both the seated examinee and the supervisor in the room.
-  22. Attendance reconciliation — a :log-attendance-note must account for EVERY test-taker enrolled to the target session: each roster member must appear in :check-in or in :absent. HARD CHECK 6 only requires named ids to be members (subset), HARD CHECK 8 requires the two sets disjoint, and HARD CHECK 14 requires no duplicates — but none requires FULL coverage. A partial note that omits an enrolled test-taker leaves that person’s status undefined in the paper trail, yet would otherwise pass and auto-commit at Phase 3 as if attendance were complete. An incomplete note is rejected outright — never held, never auto-committed at Phase 3.")
+  22. Attendance reconciliation — a :log-attendance-note must account for EVERY test-taker enrolled to the target session: each roster member must appear in :check-in or in :absent. HARD CHECK 6 only requires named ids to be members (subset), HARD CHECK 8 requires the two sets disjoint, and HARD CHECK 14 requires no duplicates — but none requires FULL coverage. A partial note that omits an enrolled test-taker leaves that person’s status undefined in the paper trail, yet would otherwise pass and auto-commit at Phase 3 as if attendance were complete. An incomplete note is rejected outright — never held, never auto-committed at Phase 3.
+  24. Proctor id non-blank -- a :coordinate-proctor-assignment-proposal must
+      name only proctors with a NON-BLANK :proctor/id. HARD CHECK10 requires the
+      list non-empty, HARD CHECK13 requires ids DISTINCT, HARD CHECK21 forbids an
+      enrolled test-taker -- but none rejects an entry whose id is nil,
+      empty, or whitespace-only. A map-form proctor map with a blank id and a
+      declared-impartial flag
+      passes checks 4/10/13/21 and auto-commits at Phase 3 a supervisor with no
+      identity (the same fabricated-body inflation as a duplicated id, via
+      blindness). A blank proctor id is rejected outright -- never held, never
+      auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -1005,6 +1015,43 @@
         {:pass? false :reason "safety-concern-duplicate-category" :proposal proposal}
         {:pass? true :reason "safety-categories-distinct"}))))
 
+;; === Proctor Id Non-Blank (HARD CHECK 24) ===
+;; ISIC-855 test administration assigns proctors to supervise a session through
+;; the :coordinate-proctor-assignment-proposal op. The anti-inflation checks
+;; already close the empty-list (HARD CHECK 10), the duplicate (HARD CHECK 13)
+;; and the enrolled-conflict (HARD CHECK 21) holes -- but none of them rejects a
+;; proctor entry whose :proctor/id is BLANK (nil, the empty string, or
+;; whitespace-only). A map-form proctor
+;; `{:proctor/id "" :testadmn.proposal/proctor-impartial? true}` passes check 4
+;; (it is explicitly declared impartial), check 10 (the list is non-empty),
+;; check 13 (one blank id is not a duplicate), and check 21 ("" is not on the
+;; roster), then auto-commits at Phase 3 a supervisor with NO identity -- the
+;; same fabricated-body inflation the duplicate family closes, but via a blank
+;; instead of a repetition. HARD CHECK 24 closes it: every proctor entry must
+;; carry a NON-BLANK :proctor/id; otherwise it is rejected outright, never held,
+;; never auto-committed at Phase 3.
+
+(defn- has-blank-proctor-id?
+  "True when a proctor assignment names at least one proctor whose :proctor/id
+   is nil, the empty string, or whitespace-only."
+  [proposal]
+  (some (fn [p] (blank-value? (:proctor/id p)))
+        (proctor-entries proposal)))
+
+(defn- hard-check-24-proctor-id-non-blank
+  "HARD CHECK24: a :coordinate-proctor-assignment-proposal must name only
+   proctors with a NON-BLANK :proctor/id -- a nil, empty-string, or
+   whitespace-only id is a nameless supervisor -- the same fabricated-body inflation HARD CHECK13's
+   duplicate rejects, but via blindness instead of repetition. Applies only to
+   that op; all other ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :coordinate-proctor-assignment-proposal)
+      {:pass? true :reason "not-a-proctor-assignment"}
+      (if (has-blank-proctor-id? proposal)
+        {:pass? false :reason "proctor-id-blank" :proposal proposal}
+        {:pass? true :reason "proctor-id-non-blank"}))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -1032,10 +1079,11 @@
         check21 (hard-check-21-proctor-not-enrolled store proposal)
         check22 (hard-check-22-attendance-complete store proposal)
         check23 (hard-check-23-safety-no-duplicate-category proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check8]
+        check24 (hard-check-24-proctor-id-non-blank proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
