@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Twenty-two HARD, permanent, un-overridable checks
+;; Twenty-three HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Twenty-two HARD checks (un-overridable):
+   Twenty-three HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -972,6 +972,39 @@
            :unaccounted (vec unaccounted) :proposal proposal}
           {:pass? true :reason "attendance-reconciled"})))))
 
+;; === No Duplicate Safety-Concern Category (HARD CHECK 23) ===
+;; ISIC-855 test administration routes an exam-day safety flag into a triage
+;; lane through :flag-safety-concern. HARD CHECK11 requires every declared
+;; category to be one of the closed set (:facility-hazard,
+;; :test-taker-wellbeing, :integrity-incident, :environmental-hazard), but it
+;; never guards against the SAME category being declared twice. Repeating a
+;; category is the safety-side analog of HARD CHECK13's duplicated proctor,
+;; HARD CHECK14's duplicated attendance id, HARD CHECK15's duplicated supply
+;; item, and HARD CHECK16's duplicated accommodation category: it inflates the
+;; nominal number of distinct concerns (and thus the escalation/triage
+;; workload) without adding an actual separate incident to route. HARD
+;; CHECK23 rejects a flag that repeats a safety-concern category -- outright,
+;; never held, never auto-committed at Phase 3.
+
+(defn- has-duplicate-safety-category?
+  "True when a safety flag declares the same category more than once
+   (a set would collapse these, so the raw sequence is inspected)."
+  [proposal]
+  (let [cats (safety-concern-entries proposal)]
+    (> (count cats) (count (distinct cats)))))
+
+(defn- hard-check-23-safety-no-duplicate-category
+  "HARD CHECK23: a :flag-safety-concern must not declare the same
+   safety-concern category more than once. Applies only to
+   :flag-safety-concern; all other ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :flag-safety-concern)
+      {:pass? true :reason "not-a-safety-concern"}
+      (if (has-duplicate-safety-category? proposal)
+        {:pass? false :reason "safety-concern-duplicate-category" :proposal proposal}
+        {:pass? true :reason "safety-categories-distinct"}))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -998,10 +1031,11 @@
         check20 (hard-check-20-target-scheduled store proposal)
         check21 (hard-check-21-proctor-not-enrolled store proposal)
         check22 (hard-check-22-attendance-complete store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check8]
+        check23 (hard-check-23-safety-no-duplicate-category proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

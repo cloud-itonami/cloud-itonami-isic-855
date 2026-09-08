@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Twenty-two HARD, permanent, un-overridable checks
+- `testadmn.governor` — Twenty-three HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Twenty-two HARD Checks
+## Governor: Twenty-three HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -160,6 +160,18 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    enrolled test-taker of the session is rejected outright, never held, never
    auto-committed at Phase 3.
 22. **Attendance reconciliation** — a `:log-attendance-note` must account for EVERY test-taker enrolled to the target session: each roster member must appear in `:check-in` or in `:absent`. HARD CHECK 6 (enrollment binding) only requires every NAMED id to be a roster member (it constrains the subset, never the whole), HARD CHECK 8 requires the two sets to be disjoint, and HARD CHECK 14 forbids duplicating an id — but none requires FULL coverage. A partial note that leaves an enrolled test-taker out of both sets keeps that person's status UNDEFINED in the paper trail, yet the note would auto-commit at Phase 3 as if attendance were complete (the ghost-seating counterpart on the attendance side of HARD CHECK 21's proctor rule). An incomplete note is rejected outright — never held, never auto-committed at Phase 3.
+
+23. **No duplicate safety-concern category** — a `:flag-safety-concern` must
+   not name the same safety-concern category more than once. HARD CHECK 11 only
+   requires every declared category to be one of the closed set (facility /
+   wellbeing / integrity / environment concerns); it never guards against the
+   SAME category being declared twice. Repeating a category is the safety-side
+   analog of HARD CHECK 13's duplicated proctor, HARD CHECK 14's duplicated
+   attendance id, HARD CHECK 15's duplicated supply item, and HARD CHECK 16's
+   duplicated accommodation category: it inflates the nominal number of
+   distinct concerns — and thus the escalation/triage workload — without adding
+   an actual separate incident to route. A duplicated safety-concern category
+   is rejected outright — never held, never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
