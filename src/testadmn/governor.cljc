@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Twenty-one HARD, permanent, un-overridable checks
+;; Twenty-two HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Twenty-one HARD checks (un-overridable):
+   Twenty-two HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -101,7 +101,8 @@
       checks 1-17 and, at Phase 3, auto-commits a plan to run an exam
       nobody is enrolled to sit. A session with no enrolled roster is
         19. Safety-referent category match — a :flag-safety-concern must carry the referent kind its category implies: a facility-class category (:facility-hazard, :environmental-hazard) MUST name a non-blank :facility-id, and :test-taker-wellbeing MUST name a non-blank :test-taker-id. HARD CHECK 11 only requires a recognized category and HARD CHECK 17 only requires SOME referent; neither ties the referent's TYPE to the category, so a facility-hazard flagged with only a person id (or a wellbeing concern flagged with only a room id) still escalates into the wrong triage lane. A category whose required referent kind is absent is rejected outright — never held, never auto-committed at Phase 3.
-rejected outright — never held, never auto-committed at Phase 3.")
+  21. Proctor not an enrolled test-taker — a :coordinate-proctor-assignment-proposal must not name a proctor who is also on the target session’s enrolled roster; the same person cannot be both the seated examinee and the supervisor in the room.
+  22. Attendance reconciliation — a :log-attendance-note must account for EVERY test-taker enrolled to the target session: each roster member must appear in :check-in or in :absent. HARD CHECK 6 only requires named ids to be members (subset), HARD CHECK 8 requires the two sets disjoint, and HARD CHECK 14 requires no duplicates — but none requires FULL coverage. A partial note that omits an enrolled test-taker leaves that person’s status undefined in the paper trail, yet would otherwise pass and auto-commit at Phase 3 as if attendance were complete. An incomplete note is rejected outright — never held, never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -928,6 +929,49 @@ rejected outright — never held, never auto-committed at Phase 3.")
            :proctors (vec offenders) :proposal proposal}
           {:pass? true :reason "proctors-not-enrolled"})))))
 
+
+;; === Attendance Reconciliation (HARD CHECK 22) ===
+;; ISIC-855 test administration logs per-session attendance as :check-in / :absent
+;; against a session’s enrolled roster. The attendance checks built so far close
+;; distinct holes: HARD CHECK 6 requires every NAMED id to be a roster member
+;; (it only constrains the subset, never the whole), HARD CHECK 8 requires the
+;; two sets to be disjoint, HARD CHECK 14 forbids duplicating a single id — but
+;; none requires the note to account for the ENTIRE enrolled population. A note
+;; that logs only some of the roster (e.g. those who checked in, omitting an
+;; enrolled test-taker entirely) is a lynx hole in the paper trail: an enrolled
+;; person’s status is left UNKNOWN, yet the note auto-commits at Phase 3 as if
+;; attendance were complete — the ghost-seating counterpart to HARD CHECK 21 on
+;; the proctor side. HARD CHECK 22 closes it: every roster member must appear in
+;; :check-in or :absent; otherwise the note is rejected outright — never held,
+;; never auto-committed at Phase 3.
+
+(defn- named-attendance-union
+  "Every test-taker id an attendance note accounts for, present or absent, as a
+   set. Kept distinct from HARD CHECK 6’s membership helper because the
+   reconciliation test needs the full union, not per-field membership."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})
+        check-in (set (when (coll? (:check-in data)) (:check-in data)))
+        absent   (set (when (coll? (:absent data)) (:absent data)))]
+    (set/union check-in absent)))
+
+(defn- hard-check-22-attendance-complete
+  "HARD CHECK 22: a :log-attendance-note must account for every test-taker
+   enrolled to the target session (each roster member in :check-in or :absent).
+   Applies only to :log-attendance-note; all other ops pass trivially."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :log-attendance-note)
+      {:pass? true :reason "not-an-attendance-note"}
+      (let [session (store/lookup-session store target-session-id)
+            roster (session-roster-set session)
+            accounted (named-attendance-union proposal)
+            unaccounted (set/difference roster accounted)]
+        (if (seq unaccounted)
+          {:pass? false :reason "attendance-incomplete-roster"
+           :unaccounted (vec unaccounted) :proposal proposal}
+          {:pass? true :reason "attendance-reconciled"})))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -953,10 +997,11 @@ rejected outright — never held, never auto-committed at Phase 3.")
         check19 (hard-check-19-safety-referent-match proposal)
         check20 (hard-check-20-target-scheduled store proposal)
         check21 (hard-check-21-proctor-not-enrolled store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check8]
+        check22 (hard-check-22-attendance-complete store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

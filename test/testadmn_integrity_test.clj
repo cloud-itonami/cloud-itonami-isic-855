@@ -73,7 +73,7 @@
        :testadmn.test-session/facility-id "facility-101"
        :testadmn.test-session/roster #{"s001" "s002"}})
     (let [operation (op/make-operation :log-attendance-note "sess-001"
-                                        {:check-in ["s001"] :absent ["s001"]})
+                                        {:check-in ["s001" "s002"] :absent ["s001"]})
           result (op/execute-operation operation s 3)]
       (is (= :rejected (:status result)))
       (is (= "attendance-self-contradiction" (:reason result))))))

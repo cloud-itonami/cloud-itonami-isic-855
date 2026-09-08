@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Twenty-one HARD, permanent, un-overridable checks
+- `testadmn.governor` — Twenty-two HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Twenty-one HARD Checks
+## Governor: Twenty-two HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -159,6 +159,7 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    ghost-seating vector). HARD CHECK 21 closes it: a named proctor that is an
    enrolled test-taker of the session is rejected outright, never held, never
    auto-committed at Phase 3.
+22. **Attendance reconciliation** — a `:log-attendance-note` must account for EVERY test-taker enrolled to the target session: each roster member must appear in `:check-in` or in `:absent`. HARD CHECK 6 (enrollment binding) only requires every NAMED id to be a roster member (it constrains the subset, never the whole), HARD CHECK 8 requires the two sets to be disjoint, and HARD CHECK 14 forbids duplicating an id — but none requires FULL coverage. A partial note that leaves an enrolled test-taker out of both sets keeps that person's status UNDEFINED in the paper trail, yet the note would auto-commit at Phase 3 as if attendance were complete (the ghost-seating counterpart on the attendance side of HARD CHECK 21's proctor rule). An incomplete note is rejected outright — never held, never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
