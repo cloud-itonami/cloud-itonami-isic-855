@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Twenty-five HARD, permanent, un-overridable checks
+- `testadmn.governor` — Twenty-six HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Twenty-five HARD Checks
+## Governor: Twenty-six HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -198,6 +198,22 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
    conflict: such a target is rejected earlier by HARD CHECK 12, so only
    concrete (venue, time) pairs can collide. A double-booked schedule is
    rejected outright — never held, never auto-committed at Phase 3.
+
+26. **No roster-member time collision** — ISIC-855 one body sits ONE exam at a
+    time. HARD CHECK 25 keeps one *room* out of two simultaneous exams; this
+    check keeps one *person* out of two. The target session of a
+    `:schedule-test-session` must not share an enrolled test-taker with any
+    OTHER registered session starting at the same instant
+    (`:testadmn.test-session/scheduled-start`). HARD CHECK 12 makes the start
+    concrete, HARD CHECK 18 makes the roster non-empty, and HARD CHECK 25
+    separates the rooms — but a student enrolled to the 09:00 SAT in
+    `facility-101` and the 09:00 ACT in `facility-204` passes 1–25 (the
+    venue-time pairs differ, so the room check never fires) and would
+    auto-commit at Phase 3 an impossible double-seating that surfaces only at
+    check-in, when the test-taker cannot be in two rooms at once. A target
+    without a concrete start is rejected earlier by HARD CHECK 12, so only
+    real instants can collide. A colliding roster is rejected outright — never
+    held, never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
