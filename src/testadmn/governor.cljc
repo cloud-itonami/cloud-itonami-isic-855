@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Twenty-five HARD, permanent, un-overridable checks
+;; Twenty-six HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Twenty-five HARD checks (un-overridable):
+   Twenty-six HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -126,7 +126,20 @@
       Note the pair must be CONCRETE to collide: a blank facility or start
       fails HARD CHECK 12 first, so a venue-less session can never mask an
       occupied room. A colliding schedule is rejected outright -- never held,
-      never auto-committed at Phase 3.")
+      never auto-committed at Phase 3.
+  26. No roster-member time collision -- ISIC-855 one body sits ONE exam at
+      a time. HARD CHECK 25 keeps one ROOM out of two simultaneous exams, but
+      nothing kept one PERSON out of two: the enrolled roster of the target
+      session of a :schedule-test-session must not intersect the roster of any
+      OTHER registered session that starts at the same instant
+      (:scheduled-start). A student enrolled to the 09:00 SAT in facility-101
+      and the 09:00 ACT in facility-204 passes checks 1-25 -- the venue-time
+      pairs differ, so the room check never fires -- and auto-commits at Phase
+      3 an impossible double-seating that surfaces only at check-in, when the
+      test-taker cannot be in two rooms at once. Only concrete instants can
+      collide: a target without a start time is rejected earlier by HARD CHECK
+      12. A colliding roster is rejected outright -- never held, never
+      auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -316,15 +329,21 @@
 ;; clean-look attendance / accommodation for a fabricated person).
 
 (defn- session-roster-set
-  "Normalize the target session's roster to a Set of test-taker id strings.
-   Across both backends the roster may arrive as a set (#{...}) or as a
-   Datomic cardinality-many vector of strings; normalize both to a set so the
-   membership check is identical. Absent/empty roster => empty set, which makes
-   every attendance/accommodation proposal fail the membership check below."
+  "Normalize the target session's roster to a flat Set of test-taker id
+   strings. Across both backends the roster may arrive as a set (#{...}), as a
+   Datomic cardinality-many vector of strings, or — because DatomicStore
+   transacts a whole set value as an EDN blob — as a VECTOR CONTAINING A SET
+   (#{...} nested one level in). Flatten repeatedly until every member is a
+   scalar so the membership check is identical on both backends. Absent/empty
+   roster => empty set, which makes every attendance/accommodation proposal
+   fail the membership check below."
   [session]
-  (-> (get session :testadmn.test-session/roster #{})
-      (as-> r (if (nil? r) #{} r))
-      (as-> r (if (vector? r) (set r) r))))
+  (loop [r (or (get session :testadmn.test-session/roster #{}) #{})]
+    (let [colls (filter coll? r)
+          scalars (remove coll? r)]
+      (if (seq colls)
+        (recur (concat scalars (apply concat colls)))
+        (set scalars)))))
 
 (defn- named-test-taker-ids
   "Every test-taker id a proposal names: attendance check-in/absent sets, and
@@ -1127,6 +1146,70 @@
                :proposal proposal}
               {:pass? true :reason "schedule-venue-time-free"})))))))
 
+;; === No Roster-Member Time Collision (HARD CHECK 26) ===
+;; ISIC-855 one registered test-taker sits ONE exam at a time. HARD CHECK 25
+;; (venue-time double-booking) protects the ROOM from two simultaneous exams,
+;; but nothing has ever protected the PERSON: a test-taker enrolled to two
+;; different registered sessions that start at the same instant is legal paper
+;; trail -- different facilities, so the (venue, time) pair never collides --
+;; and physically impossible at check-in. Checks 1-25 each look at the target
+;; alone (or at its venue pair); none compares the target's enrolled roster
+;; (HARD CHECK 18 makes it non-empty) against the rosters of the OTHER
+;; registered sessions sharing its :scheduled-start. HARD CHECK 26 closes the
+;; person-side analog of the venue-time collision: the target's roster must not
+;; intersect any other registered session's roster at the same instant;
+;; otherwise it is rejected outright -- never held, never auto-committed at
+;; Phase 3. Only concrete instants can collide: a blank start on the target
+;; fails HARD CHECK 12 first, so a time-less session can never mask a
+;; double-booked test-taker.
+
+(defn- scheduled-start-key
+  "The start time of a session record normalized to a string, or nil when the
+   session carries no concrete start -- such a session occupies no instant
+   (and a TARGET missing its start is already rejected by HARD CHECK 12)."
+  [session]
+  (let [start (get session :testadmn.test-session/scheduled-start)]
+    (when-not (blank-value? start) (str start))))
+
+(defn- hard-check-26-no-roster-time-collision
+  "HARD CHECK 26: the target session of a :schedule-test-session must not
+   share an enrolled test-taker with any OTHER registered session starting at
+   the same instant. Applies only to :schedule-test-session; all other ops
+   pass trivially. Reads the whole session population via
+   store/list-sessions -- the collision is a property of the roster OVERLAP
+   across time, not of the target alone (the person-side analog of HARD
+   CHECK 25's room-side rule)."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [target (store/lookup-session store target-session-id)
+            tk (scheduled-start-key target)]
+        (if-not tk
+          ;; blank start on the TARGET is check 12's decision, not this one
+          {:pass? true :reason "schedule-start-time-unasserted"}
+          (let [target-roster (session-roster-set target)
+                collisions (->> (store/list-sessions store)
+                                (filter :testadmn.test-session/registered?)
+                                (remove #(= (:testadmn.test-session/id %)
+                                            target-session-id))
+                                (filter #(= (scheduled-start-key %) tk))
+                                (keep (fn [other]
+                                        (let [shared (set/intersection
+                                                       target-roster
+                                                       (session-roster-set other))]
+                                          (when (seq shared)
+                                            {:session (:testadmn.test-session/id other)
+                                             :test-takers (vec (sort shared))}))))
+                                vec)]
+            (if (seq collisions)
+              {:pass? false :reason "schedule-roster-time-collision"
+               :session-id target-session-id
+               :scheduled-start tk
+               :collisions collisions
+               :proposal proposal}
+              {:pass? true :reason "schedule-roster-time-free"})))))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -1156,10 +1239,11 @@
         check23 (hard-check-23-safety-no-duplicate-category proposal)
         check24 (hard-check-24-proctor-id-non-blank proposal)
         check25 (hard-check-25-no-venue-time-collision store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check8]
+        check26 (hard-check-26-no-roster-time-collision store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
