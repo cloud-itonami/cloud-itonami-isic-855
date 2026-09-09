@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Twenty-eight HARD, permanent, un-overridable checks
+;; Twenty-nine HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Twenty-eight HARD checks (un-overridable):
+   Twenty-nine HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -162,7 +162,9 @@
       registered sessions sharing an instant: a :schedule-test-session whose
       roster does not collide can still commit a supervision plan the same
       staff member cannot physically serve. A colliding supervision plan is
-      rejected outright -- never held, never auto-committed at Phase 3.")
+  29. No duplicate proposal id -- a proposal whose :testadmn.proposal/id is
+      already in the store's proposal-log is rejected outright; id reuse
+      overwrites the audit trail instead of appending a real event.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -1376,6 +1378,43 @@
                    :proposal proposal}
                   {:pass? true :reason "schedule-proctor-time-free"})))))))))
 
+;; === No Duplicate Proposal Id (HARD CHECK 29) ===
+;; ISIC-855 test administration's audit trail is keyed by
+;; :testadmn.proposal/id -- every committed, escalated, held, or rejected
+;; operation is one append to store/proposal-log under that id. Reusing an id
+;; that is ALREADY on record is the anti-fabrication analog of the duplicate
+;; checks for proctors 13, attendance ids 14, supply items 15, accommodation
+;; categories 16, and safety categories 23: a second operation stamped with an
+;; existing id does not add a real event to the trail, it OVERWRITES the
+;; narrative -- a falsified resubmission can masquerade as the original's
+;; record, and any surface that filters the log by id cannot tell the two
+;; apart. HARD CHECK 29 closes that: a proposal whose :testadmn.proposal/id
+;; already appears in the store's proposal-log is rejected outright -- never
+;; held, never auto-committed at Phase 3. It reads the whole log, so it is
+;; the population-side analog of the per-proposal duplicate checks.
+
+(defn- proposal-id-on-record?
+  "True when the proposal's :testadmn.proposal/id is already recorded in the
+   store's proposal-log (a previous operation, in any state, owns it)."
+  [store proposal]
+  (let [id (get proposal :testadmn.proposal/id)]
+    (some #(= id (get % :testadmn.proposal/id))
+          (store/proposal-log store))))
+
+(defn- hard-check-29-no-duplicate-proposal-id
+  "HARD CHECK 29: a proposal's :testadmn.proposal/id must not already exist
+  in the store's proposal-log -- a second submission stamped with an
+  existing id overwrites the audit narrative instead of adding a real
+  event. Applies to every op."
+  [store proposal]
+  (if (proposal-id-on-record? store proposal)
+    {:pass? false
+     :reason "proposal-id-duplicate"
+     :proposal-id (get proposal :testadmn.proposal/id)
+     :proposal proposal}
+    {:pass? true :reason "proposal-id-unique"}))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -1408,10 +1447,11 @@
         check26 (hard-check-26-no-roster-time-collision store proposal)
         check27 (hard-check-27-schedule-supervision-covers-roster store proposal)
         check28 (hard-check-28-no-proctor-time-collision store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check8]
+        check29 (hard-check-29-no-duplicate-proposal-id store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
