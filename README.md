@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Twenty-eight HARD, permanent, un-overridable checks
+- `testadmn.governor` — Twenty-nine HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Twenty-eight HARD Checks
+## Governor: Twenty-nine HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -233,6 +233,7 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
     auto-committed at Phase 3.
 
 28. **No proctor double-booking across simultaneous sessions** — ISIC-855 one
+29. No duplicate proposal id -- a proposal whose :testadmn.proposal/id already appears in the store's proposal-log is rejected outright; a resubmission stamped with an existing id overwrites the audit narrative instead of adding a real event.
     staff member supervises ONE exam at a time. HARD CHECK 26 keeps one
     *test-taker* out of two simultaneous exams and HARD CHECK 27 bounds
     staffing by headcount — but both look at the TARGET session alone, so a
