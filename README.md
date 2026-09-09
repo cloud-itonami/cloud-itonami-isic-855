@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Twenty-seven HARD, permanent, un-overridable checks
+- `testadmn.governor` — Twenty-eight HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Twenty-seven HARD Checks
+## Governor: Twenty-eight HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -231,6 +231,23 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
     CHECK 18, so this check only compares two asserted figures. An
     under-staffed schedule is rejected outright — never held, never
     auto-committed at Phase 3.
+
+28. **No proctor double-booking across simultaneous sessions** — ISIC-855 one
+    staff member supervises ONE exam at a time. HARD CHECK 26 keeps one
+    *test-taker* out of two simultaneous exams and HARD CHECK 27 bounds
+    staffing by headcount — but both look at the TARGET session alone, so a
+    `:schedule-test-session` whose declared supervising staff
+    (`:proctor-supervision`) intersects the supervision of any OTHER
+    registered session starting at the same instant
+    (`:testadmn.test-session/supervision`) passed checks 1–27 (different
+    facilities, so the venue-time pair of check 25 never collides; disjoint
+    rosters, so check 26 never fires) and would auto-commit at Phase 3 a
+    supervision plan the same staff member cannot physically serve — the
+    supervisor-side analog of HARD CHECK 26's one-body rule. Only concrete
+    instants can collide: a target without a start time is rejected earlier
+    by HARD CHECK 12, and a schedule naming no supervising staff passes
+    vacuously (nothing named can be double-booked). A colliding supervision
+    plan is rejected outright — never held, never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
