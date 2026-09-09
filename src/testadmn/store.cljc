@@ -115,6 +115,7 @@
 (def ^:private schema
   {:testadmn.test-session/id      {:db/unique :db.unique/identity}
    :testadmn.test-session/roster  {:db/cardinality :db.cardinality/many}
+   :testadmn.test-session/supervision {:db/cardinality :db.cardinality/many}
    :proposal-log/seq              {:db/unique :db.unique/identity}})
 
 (defn- enc [v] (pr-str v))
@@ -124,7 +125,7 @@
   [:testadmn.test-session/id :testadmn.test-session/name
    :testadmn.test-session/registered? :testadmn.test-session/verified?
    :testadmn.test-session/scheduled-start :testadmn.test-session/facility-id
-   :testadmn.test-session/roster])
+   :testadmn.test-session/roster :testadmn.test-session/supervision])
 
 (defn- prune-nils [m] (into {} (remove (comp nil? val) m)))
 

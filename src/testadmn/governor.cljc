@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Twenty-seven HARD, permanent, un-overridable checks
+;; Twenty-eight HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Twenty-seven HARD checks (un-overridable):
+   Twenty-eight HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -154,7 +154,15 @@
       non-positive headcount is decided earlier by HARD CHECK 9 and an
       empty roster by HARD CHECK 18, so this check only ever compares two
       asserted figures. An under-staffed schedule is rejected outright --
-      never held, never auto-committed at Phase 3.")
+      never held, never auto-committed at Phase 3.
+  28. No proctor double-booking across simultaneous sessions -- ISIC-855 one
+      staff member supervises ONE exam at a time. HARD CHECK 26 keeps one
+      test-taker out of two simultaneous exams, and HARD CHECK 27 bounds
+      staffing by headcount -- but nothing kept one PROCTOR out of two
+      registered sessions sharing an instant: a :schedule-test-session whose
+      roster does not collide can still commit a supervision plan the same
+      staff member cannot physically serve. A colliding supervision plan is
+      rejected outright -- never held, never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -1282,6 +1290,92 @@
           :else
           {:pass? true :reason "schedule-capacity-covered"})))))
 
+;; === No Proctor Double-Booking Across Simultaneous Sessions (HARD CHECK 28) ===
+;; ISIC-855 one staff member supervises ONE exam at a time. HARD CHECK 26
+;; closed the test-taker side of simultaneous occupancy (one body sits one
+;; exam), and HARD CHECK 27 bounded staffing by headcount (roster size <=
+;; proctors * cap) -- but both look at the TARGET session alone. Nothing has
+;; ever compared two sessions' supervision at the same instant: a staff
+;; member named in two registered sessions' supervision plans that start at
+;; the same time is legal paper trail -- different facilities, so the
+;; (venue, time) pair of HARD CHECK 25 never collides and no roster overlap
+;; trips HARD CHECK 26 -- and physically impossible at door-open, when the
+;; same proctor cannot be supervising two rooms at once. HARD CHECK 28 closes
+;; the supervisor-side analog of HARD CHECK 26: a :schedule-test-session
+;; declaring :proctors supervision for a session whose declared supervising
+;; staff (:proctor-supervision ids, HARD CHECK 24 makes any named id
+;; non-blank) intersects another registered session's at the same instant is
+;; rejected outright -- never held, never auto-committed at Phase 3. Only
+;; concrete instants can collide: a blank start on the target fails HARD
+;; CHECK 12 first, and a target with no declared supervision passes vacuously
+;; (HARD CHECK 9's headcount bound is a separate, earlier decision).
+
+(defn- declared-supervision-ids
+  "The set of proctor ids a :schedule-test-session declares as supervising
+   staff (:proctor-supervision vector of strings in its proposal-data).
+   Empty when none are declared -- such a schedule asserts no named body, so
+   check 28 has nothing to double-book."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})
+        sv (:proctor-supervision data)]
+    (into #{} (filter string? sv))))
+
+(defn- session-supervision-set
+  "Normalize a session record's supervision set to a flat Set of proctor id
+   strings. DatomicStore transacts a whole set value as an EDN blob, so the
+   set may arrive as a VECTOR CONTAINING A SET (#{...} nested one level in) --
+   flatten repeatedly until every member is a scalar so the overlap check is
+   identical on both backends. Absent/empty => empty set."
+  [session]
+  (loop [r (or (get session :testadmn.test-session/supervision #{}) #{})]
+    (let [colls (filter coll? r)
+          scalars (remove coll? r)]
+      (if (seq colls)
+        (recur (concat scalars (apply concat colls)))
+        (set scalars)))))
+
+(defn- hard-check-28-no-proctor-time-collision
+  "HARD CHECK 28: the supervising staff (:proctor-supervision) declared by a
+   :schedule-test-session must not overlap the supervision of any OTHER
+   registered session starting at the same instant -- one staff member
+   supervises one exam at a time. Applies only to :schedule-test-session; all
+   other ops pass trivially. Reads the whole session population via
+   store/list-sessions -- the collision is a property of supervision OVERLAP
+   across time, the supervisor-side analog of HARD CHECK 26's one-body rule."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [tk (scheduled-start-key (store/lookup-session store target-session-id))]
+        (if-not tk
+          ;; blank start on the TARGET is check 12's decision, not this one
+          {:pass? true :reason "schedule-start-time-unasserted"}
+          (let [mine (declared-supervision-ids proposal)]
+            (if (empty? mine)
+              ;; no named supervising staff: check 27's headcount decision covers
+              ;; sufficiency; nothing named can be double-booked
+              {:pass? true :reason "schedule-supervision-unasserted"}
+              (let [collisions (->> (store/list-sessions store)
+                                    (filter :testadmn.test-session/registered?)
+                                    (remove #(= (:testadmn.test-session/id %)
+                                                target-session-id))
+                                    (filter #(= (scheduled-start-key %) tk))
+                                    (keep (fn [other]
+                                            (let [shared (set/intersection
+                                                           mine
+                                                           (session-supervision-set other))]
+                                              (when (seq shared)
+                                                {:session (:testadmn.test-session/id other)
+                                                 :proctors (vec (sort shared))}))))
+                                    vec)]
+                (if (seq collisions)
+                  {:pass? false :reason "schedule-proctor-time-collision"
+                   :session-id target-session-id
+                   :scheduled-start tk
+                   :collisions collisions
+                   :proposal proposal}
+                  {:pass? true :reason "schedule-proctor-time-free"})))))))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -1313,10 +1407,11 @@
         check25 (hard-check-25-no-venue-time-collision store proposal)
         check26 (hard-check-26-no-roster-time-collision store proposal)
         check27 (hard-check-27-schedule-supervision-covers-roster store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check8]
+        check28 (hard-check-28-no-proctor-time-collision store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
