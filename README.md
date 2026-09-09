@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Twenty-six HARD, permanent, un-overridable checks
+- `testadmn.governor` — Twenty-seven HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Twenty-six HARD Checks
+## Governor: Twenty-seven HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -214,6 +214,23 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
     without a concrete start is rejected earlier by HARD CHECK 12, so only
     real instants can collide. A colliding roster is rejected outright — never
     held, never auto-committed at Phase 3.
+
+27. **Schedule supervision must cover enrollment** — ISIC-855 every seated
+    test-taker must be within a proctor's watch. HARD CHECK 9 requires a
+    `:schedule-test-session` to declare a POSITIVE `:proctors` headcount and
+    HARD CHECK 18 requires a non-empty enrolled roster — but nothing has
+    ever *compared* the two: a schedule declaring 1 proctor for a 26-person
+    roster passes checks 1–26 and would auto-commit at Phase 3 an
+    unsupervisable exam (unchecked stations are where misconduct goes
+    unseen — under-staffing is an exam-integrity hole, not a comfort one).
+    This is the capacity collision for the *supervisor*, completing the
+    check 25/26 occupancy family (room, person, proctor): one proctor
+    watches at most `max-seats-per-proctor` (25) seated test-takers, so a
+    session may enroll at most `(* :proctors 25)`. A missing/non-positive
+    headcount is decided earlier by HARD CHECK 9 and an empty roster by HARD
+    CHECK 18, so this check only compares two asserted figures. An
+    under-staffed schedule is rejected outright — never held, never
+    auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
