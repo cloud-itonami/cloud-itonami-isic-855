@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Twenty-six HARD, permanent, un-overridable checks
+;; Twenty-seven HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Twenty-six HARD checks (un-overridable):
+   Twenty-seven HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -139,7 +139,22 @@
       test-taker cannot be in two rooms at once. Only concrete instants can
       collide: a target without a start time is rejected earlier by HARD CHECK
       12. A colliding roster is rejected outright -- never held, never
-      auto-committed at Phase 3.")
+      auto-committed at Phase 3.
+  27. Schedule supervision must cover enrollment -- ISIC-855 every seated
+      test-taker must be within a proctor's watch. HARD CHECK 9 requires a
+      :schedule-test-session to declare a POSITIVE :proctors headcount, and
+      HARD CHECK 18 requires a non-empty enrolled roster -- but no check
+      has ever COMPARED the two figures: a schedule declaring 1 proctor for
+      a 26-person enrolled roster passes checks 1-26 and auto-commits at
+      Phase 3 an unsupervisable exam -- the room-side analog of HARD CHECK
+      26's one-body-one-seat rule: the proctor cannot watch stations no
+      supervisor reaches. The closed logistics cap is
+      `max-seats-per-proctor` (25 seated test-takers), so a session may
+      enroll at most (* :proctors 25) test-takers. A missing or
+      non-positive headcount is decided earlier by HARD CHECK 9 and an
+      empty roster by HARD CHECK 18, so this check only ever compares two
+      asserted figures. An under-staffed schedule is rejected outright --
+      never held, never auto-committed at Phase 3.")
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -1210,6 +1225,63 @@
                :proposal proposal}
               {:pass? true :reason "schedule-roster-time-free"})))))))
 
+;; === Schedule Supervision Covers Enrollment (HARD CHECK 27) ===
+;; ISIC-855 scheduling declares WHO supervises (:proctors headcount, HARD
+;; CHECK 9 requires it positive) and the session record carries WHO sits
+;; (the enrolled roster, HARD CHECK 18 requires it non-empty) -- but no
+;; check has ever compared the two. A :schedule-test-session declaring 1
+;; proctor for a 26-person enrolled roster passes checks 1-26 (the headcount
+;; IS positive, the roster IS non-empty) and auto-commits at Phase 3 an
+;; exam no proctor can supervise: unchecked stations are where misconduct
+;; goes unseen, so under-staffing is an exam-integrity hole, not just a
+;; comfort one. The check 25/26 family closed occupancy collisions for the
+;; ROOM and the PERSON; this closes the capacity collision for the
+;; SUPERVISOR: one proctor watches at most `max-seats-per-proctor` seated
+;; test-takers. HARD CHECK 27 requires roster-size <= proctors * cap; a
+;; missing/non-positive headcount is check 9's decision and an empty roster
+;; is check 18's, both earlier in the chain, so this check only compares
+;; two asserted figures -- rejected outright, never held, never
+;; auto-committed at Phase 3.
+
+(def ^:private max-seats-per-proctor
+  "ISIC-855 logistics cap: one proctor may supervise at most 25 seated
+   test-takers (the conservative end of common exam-board staffing
+   guidance). HARD CHECK 27 bounds a schedule's enrolled roster by
+   (* :proctors this cap)."
+  25)
+
+(defn- hard-check-27-schedule-supervision-covers-roster
+  "HARD CHECK 27: the enrolled roster of the target session of a
+   :schedule-test-session must not exceed (* declared :proctors
+   max-seats-per-proctor) -- no test-taker may be scheduled to sit outside
+   every proctor's watch. Applies only to :schedule-test-session; all other
+   ops pass trivially. Reads the roster via store/lookup-session -- the
+   capacity bound is a property of the target's ENROLLED population, not of
+   the proposal text."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [session (store/lookup-session store target-session-id)
+            roster-size (count (session-roster-set session))
+            headcount (declared-proctor-headcount proposal)]
+        (cond
+          ;; missing/zero/negative/non-integer headcount: check 9's decision
+          (not (and (integer? headcount) (pos? headcount)))
+          {:pass? true :reason "schedule-headcount-unasserted"}
+          ;; empty roster: check 18's decision
+          (zero? roster-size)
+          {:pass? true :reason "schedule-roster-unasserted"}
+          (> roster-size (* headcount max-seats-per-proctor))
+          {:pass? false :reason "schedule-understaffed-for-roster"
+           :session-id target-session-id
+           :proctors headcount
+           :roster-size roster-size
+           :capacity (* headcount max-seats-per-proctor)
+           :proposal proposal}
+          :else
+          {:pass? true :reason "schedule-capacity-covered"})))))
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -1240,10 +1312,11 @@
         check24 (hard-check-24-proctor-id-non-blank proposal)
         check25 (hard-check-25-no-venue-time-collision store proposal)
         check26 (hard-check-26-no-roster-time-collision store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check8]
+        check27 (hard-check-27-schedule-supervision-covers-roster store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
