@@ -18,7 +18,7 @@
   ;; langchain-store, which only resolves inside this exact monorepo layout and used a
   ;; stale pre-rename artifact id `com-junkawasaki/langgraph-clj` -- neither the fleet-
   ;; standard shape nor actually standalone-forkable. langchain-store is not currently
-  ;; used by src/testadmn/store.cljc's actual code (the `ls` alias is imported but
+  ;; used by src/testadmn/store.kotoba's actual code (the `ls` alias is imported but
   ;; unreferenced) -- kept here as a :dev-only override so it stays available if/when
   ;; that wiring is finished, without forcing every consumer to resolve it.)
   :dev {:override-deps
