@@ -40,7 +40,7 @@
   consecutive runs are byte-identical; verify by diffing two runs written
   into separate scratch directories.
 
-  Usage: `clojure -M:dev:render-html [out-file]`
+  Usage: `kbb -M:dev:render-html [out-file]`
   (default `docs/samples/operator-console.html`)."
   (:require [jp-go-dds.skin]
             [kotoba.lang.text :as str]
@@ -293,7 +293,7 @@
      ;; 1 -- sessions
      "  <section class=\"card\">\n"
      "    <h2>Seeded test sessions</h2>\n"
-     "    <p class=\"muted\">Read back out of the live store after seeding, via <code>testadmn.store/lookup-session</code>. Generated at build time by <code>testadmn.render-html</code> (<code>clojure -M:dev:render-html</code>) &mdash; no hand-written rows. <code>session-003</code> is seeded through <code>create-session!</code> and deliberately left unregistered; <code>session-009</code> is deliberately never seeded at all. Both exist so the governor&rsquo;s first HARD check is exercised against real ground truth.</p>\n"
+     "    <p class=\"muted\">Read back out of the live store after seeding, via <code>testadmn.store/lookup-session</code>. Generated at build time by <code>testadmn.render-html</code> (<code>kbb -M:dev:render-html</code>) &mdash; no hand-written rows. <code>session-003</code> is seeded through <code>create-session!</code> and deliberately left unregistered; <code>session-009</code> is deliberately never seeded at all. Both exist so the governor&rsquo;s first HARD check is exercised against real ground truth.</p>\n"
      "    <table>\n"
      "      <thead><tr><th>Session</th><th>Name</th><th>Scheduled start</th><th>Facility</th><th>Registration</th><th>Verification</th></tr></thead>\n"
      "      <tbody>\n"
@@ -359,7 +359,7 @@
      "  </section>\n"
      "</main>\n"
      "<footer>\n"
-     "  <p>Generated from a live run of <code>testadmn.operation</code> &rarr; <code>testadmn.governor</code> &rarr; <code>testadmn.store</code> over the seed in <code>testadmn.store/demo-registered-sessions</code>. Regenerate with <code>clojure -M:dev:render-html</code>.</p>\n"
+     "  <p>Generated from a live run of <code>testadmn.operation</code> &rarr; <code>testadmn.governor</code> &rarr; <code>testadmn.store</code> over the seed in <code>testadmn.store/demo-registered-sessions</code>. Regenerate with <code>kbb -M:dev:render-html</code>.</p>\n"
      "</footer>\n"
      "</body></html>\n")))
 
