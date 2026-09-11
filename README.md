@@ -289,19 +289,19 @@ content-bearing payload):
 ## Testing
 
 ```bash
-clojure -M:dev:test
+kbb -M:dev:test
 ```
 
 ## Lint
 
 ```bash
-clojure -M:lint
+kbb -M:lint
 ```
 
 ## Demo
 
 ```bash
-clojure -M:dev -e "(require 'testadmn.sim) (clojure.pprint/pprint (testadmn.sim/run-demo))"
+kbb -M:dev -e "(require 'testadmn.sim) (clojure.pprint/pprint (testadmn.sim/run-demo))"
 ```
 
 ## Governance

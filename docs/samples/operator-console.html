@@ -2468,7 +2468,7 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
 <main>
   <section class="card">
     <h2>Seeded test sessions</h2>
-    <p class="muted">Read back out of the live store after seeding, via <code>testadmn.store/lookup-session</code>. Generated at build time by <code>testadmn.render-html</code> (<code>clojure -M:dev:render-html</code>) &mdash; no hand-written rows. <code>session-003</code> is seeded through <code>create-session!</code> and deliberately left unregistered; <code>session-009</code> is deliberately never seeded at all. Both exist so the governor&rsquo;s first HARD check is exercised against real ground truth.</p>
+    <p class="muted">Read back out of the live store after seeding, via <code>testadmn.store/lookup-session</code>. Generated at build time by <code>testadmn.render-html</code> (<code>kbb -M:dev:render-html</code>) &mdash; no hand-written rows. <code>session-003</code> is seeded through <code>create-session!</code> and deliberately left unregistered; <code>session-009</code> is deliberately never seeded at all. Both exist so the governor&rsquo;s first HARD check is exercised against real ground truth.</p>
     <table>
       <thead><tr><th>Session</th><th>Name</th><th>Scheduled start</th><th>Facility</th><th>Registration</th><th>Verification</th></tr></thead>
       <tbody>
@@ -2552,6 +2552,6 @@ img,svg { max-width: 100%; height: auto; }</style></head><body>
   </section>
 </main>
 <footer>
-  <p>Generated from a live run of <code>testadmn.operation</code> &rarr; <code>testadmn.governor</code> &rarr; <code>testadmn.store</code> over the seed in <code>testadmn.store/demo-registered-sessions</code>. Regenerate with <code>clojure -M:dev:render-html</code>.</p>
+  <p>Generated from a live run of <code>testadmn.operation</code> &rarr; <code>testadmn.governor</code> &rarr; <code>testadmn.store</code> over the seed in <code>testadmn.store/demo-registered-sessions</code>. Regenerate with <code>kbb -M:dev:render-html</code>.</p>
 </footer>
 </body></html>
