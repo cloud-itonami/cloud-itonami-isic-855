@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Twenty-nine HARD, permanent, un-overridable checks
+- `testadmn.governor` — Thirty HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Twenty-nine HARD Checks
+## Governor: Thirty HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
@@ -249,6 +249,20 @@ Actor modules (all `.cljc`, langgraph-clj StateGraph):
     by HARD CHECK 12, and a schedule naming no supervising staff passes
     vacuously (nothing named can be double-booked). A colliding supervision
     plan is rejected outright — never held, never auto-committed at Phase 3.
+
+30. **No self-supervision of the target's own roster** — ISIC-855 a proctor
+    supervises the *examinees*, never sits among them. HARD CHECK 21 keeps an
+    enrolled test-taker out of the *assignment* op
+    (`:coordinate-proctor-assignment-proposal`), but the *scheduling* op was
+    never bound: a `:schedule-test-session` declares supervising staff as
+    `:proctor-supervision` ids in its proposal-data, and no check compared
+    them with the target's OWN `:testadmn.test-session/roster` — check 28
+    only guards cross-session supervision at the same instant. A schedule
+    naming an enrolled test-taker as the session's own supervisor passed
+    checks 1–29 and would auto-commit at Phase 3 a plan in which a seated
+    examinee watches their own exam. The declared `:proctor-supervision` ids
+    must not intersect the target's enrolled roster; a colliding schedule is
+    rejected outright — never held, never auto-committed at Phase 3.
 
 ## Closed :propose-only Allowlist
 
