@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Twenty-nine HARD, permanent, un-overridable checks
+;; Thirty HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Twenty-nine HARD checks (un-overridable):
+   Thirty HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -1378,6 +1378,48 @@
                    :proposal proposal}
                   {:pass? true :reason "schedule-proctor-time-free"})))))))))
 
+;; === No Self-Supervision of the Target's Own Roster (HARD CHECK 30) ===
+;; ISIC-855 a proctor supervises the EXAMINEES, never sits among them. HARD
+;; CHECK 21 closed the assignment side: a :coordinate-proctor-assignment-proposal
+;; must not name a proctor who is on the target session's enrolled roster. But
+;; the SCHEDULING side was never bound: a :schedule-test-session declares
+;; supervising staff as :proctor-supervision ids in its proposal-data, and
+;; nothing compared those ids with the target's OWN
+;; :testadmn.test-session/roster. A schedule naming an enrolled test-taker as
+;; the session's own supervisor passes checks 1-29 -- check 21 guards only
+;; :coordinate-proctor-assignment-proposal, and check 28 only compares
+;; :proctor-supervision against OTHER sessions' supervision at the same
+;; instant -- and auto-commits at Phase 3 a plan in which a seated test-taker
+;; watches their own exam: an integrity hole identical to check 21's, reached
+;; through a different op. HARD CHECK 30 closes it: the declared
+;; :proctor-supervision ids must not intersect the target's enrolled roster.
+;; Rejected outright -- never held, never auto-committed at Phase 3. Blank
+;; supervision is check 28's vacuous pass and an empty roster is check 18's
+;; decision; both are earlier in the chain, so this check only compares two
+;; asserted sets.
+
+(defn- hard-check-30-no-self-supervision
+  "HARD CHECK 30: the supervising staff (:proctor-supervision) declared by a
+   :schedule-test-session must not intersect the target session's OWN
+   enrolled roster -- a test-taker cannot supervise their own exam. Applies
+   only to :schedule-test-session; all other ops pass trivially. Reads the
+   roster via store/lookup-session (same shape normalization as check 26:
+   the roster is an enrolled population, not proposal text)."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [session (store/lookup-session store target-session-id)
+            roster (session-roster-set session)
+            mine (declared-supervision-ids proposal)
+            shared (set/intersection mine roster)]
+        (if (empty? shared)
+          {:pass? true :reason "schedule-proctor-not-enrolled"}
+          {:pass? false :reason "schedule-self-supervision"
+           :session-id target-session-id
+           :proctors (vec (sort shared))
+           :proposal proposal})))))
+
 ;; === No Duplicate Proposal Id (HARD CHECK 29) ===
 ;; ISIC-855 test administration's audit trail is keyed by
 ;; :testadmn.proposal/id -- every committed, escalated, held, or rejected
@@ -1448,10 +1490,11 @@
         check27 (hard-check-27-schedule-supervision-covers-roster store proposal)
         check28 (hard-check-28-no-proctor-time-collision store proposal)
         check29 (hard-check-29-no-duplicate-proposal-id store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check8]
+        check30 (hard-check-30-no-self-supervision store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
