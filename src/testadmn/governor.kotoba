@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Thirty HARD, permanent, un-overridable checks
+;; Thirty-one HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Thirty HARD checks (un-overridable):
+   Thirty-one HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -1420,6 +1420,71 @@
            :proctors (vec (sort shared))
            :proposal proposal})))))
 
+
+;; === No Proctor-Assignment Time Collision (HARD CHECK 31) ===
+;; ISIC-855 one staff member supervises ONE exam at a time, no matter which
+;; route the paperwork took. HARD CHECK 28 closed the SCHEDULING route: a
+;; :schedule-test-session's declared :proctor-supervision ids cannot overlap
+;; another registered session's supervision at the same instant. But the
+;; ASSIGNMENT route -- :coordinate-proctor-assignment-proposal, which names
+;; proctors (:proctor/id entries, HARD CHECK 24 makes them non-blank) to walk
+;; into the room -- was never bound against the population: a proposal naming
+;; a proctor who is ALREADY the supervising staff of a different registered
+;; session at the target's own :scheduled-start passes checks 1-30 (checks
+;; 13/21/24 look at the ids' shape and roster, check 28 guards only the
+;; schedule op, and checks 25/26 guard the room and the seated test-takers)
+;; and auto-commits at Phase 3 an assignment the same body cannot serve.
+;; HARD CHECK 31 closes it: the named proctor ids must not intersect any
+;; OTHER registered session's supervision at the same instant. Rejected
+;; outright -- never held, never auto-committed at Phase 3. Only concrete
+;; instants can collide: a blank start on the target defers (check 12 binds
+;; the schedule route, not this one), and a target assigning nobody asserts
+;; no body this check could double-book.
+
+(defn- hard-check-31-no-assignment-time-collision
+  "HARD CHECK 31: the proctors named by a
+   :coordinate-proctor-assignment-proposal must not overlap the supervision
+   of any OTHER registered session starting at the target's
+   :scheduled-start -- one staff member supervises one exam at a time.
+   Applies only to :coordinate-proctor-assignment-proposal; all other ops
+   pass trivially. Reads the whole session population via
+   store/list-sessions -- the collision is a property of supervision OVERLAP
+   across time, the assignment-side analog of HARD CHECK 28's schedule-side
+   rule."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :coordinate-proctor-assignment-proposal)
+      {:pass? true :reason "not-a-proctor-assignment"}
+      (let [tk (scheduled-start-key (store/lookup-session store target-session-id))]
+        (if-not tk
+          ;; blank start on the TARGET: check 12 binds the schedule route,
+          ;; not this one -- an assignment asserts nobody's instant yet
+          {:pass? true :reason "assignment-start-time-unasserted"}
+          (let [mine (named-proctor-ids proposal)]
+            (if (empty? mine)
+              ;; no named body: check 10's non-emptiness decision covers this
+              {:pass? true :reason "assignment-proctors-unasserted"}
+              (let [collisions (->> (store/list-sessions store)
+                                    (filter :testadmn.test-session/registered?)
+                                    (remove #(= (:testadmn.test-session/id %)
+                                                target-session-id))
+                                    (filter #(= (scheduled-start-key %) tk))
+                                    (keep (fn [other]
+                                            (let [shared (set/intersection
+                                                           mine
+                                                           (session-supervision-set other))]
+                                              (when (seq shared)
+                                                {:session (:testadmn.test-session/id other)
+                                                 :proctors (vec (sort shared))}))))
+                                    vec)]
+                (if (seq collisions)
+                  {:pass? false :reason "assignment-proctor-time-collision"
+                   :session-id target-session-id
+                   :scheduled-start tk
+                   :collisions collisions
+                   :proposal proposal}
+                  {:pass? true :reason "assignment-proctor-time-free"})))))))))
+
 ;; === No Duplicate Proposal Id (HARD CHECK 29) ===
 ;; ISIC-855 test administration's audit trail is keyed by
 ;; :testadmn.proposal/id -- every committed, escalated, held, or rejected
@@ -1491,10 +1556,11 @@
         check28 (hard-check-28-no-proctor-time-collision store proposal)
         check29 (hard-check-29-no-duplicate-proposal-id store proposal)
         check30 (hard-check-30-no-self-supervision store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check8]
+        check31 (hard-check-31-no-assignment-time-collision store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
