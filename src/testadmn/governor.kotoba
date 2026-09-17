@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Thirty-one HARD, permanent, un-overridable checks
+;; Thirty-two HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Thirty-one HARD checks (un-overridable):
+   Thirty-two HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -1305,8 +1305,8 @@
 ;; same proctor cannot be supervising two rooms at once. HARD CHECK 28 closes
 ;; the supervisor-side analog of HARD CHECK 26: a :schedule-test-session
 ;; declaring :proctors supervision for a session whose declared supervising
-;; staff (:proctor-supervision ids, HARD CHECK 24 makes any named id
-;; non-blank) intersects another registered session's at the same instant is
+;; staff (:proctor-supervision ids, HARD CHECK 32 makes any schedule-declared
+;; id non-blank) intersects another registered session's at the same instant is
 ;; rejected outright -- never held, never auto-committed at Phase 3. Only
 ;; concrete instants can collide: a blank start on the target fails HARD
 ;; CHECK 12 first, and a target with no declared supervision passes vacuously
@@ -1485,6 +1485,51 @@
                    :proposal proposal}
                   {:pass? true :reason "assignment-proctor-time-free"})))))))))
 
+;; === Schedule Supervisor Id Non-Blank (HARD CHECK 32) ===
+;; ISIC-855 a supervisor the paper trail cannot name is a body the room can
+;; never verify. HARD CHECK 24 closed the ASSIGNMENT route: every
+;; :coordinate-proctor-assignment-proposal entry must carry a non-blank
+;; :proctor/id. But the SCHEDULING route was never bound: a
+;; :schedule-test-session declares its supervising staff as :proctor-supervision
+;; ids in its proposal-data, and no check inspected their SHAPE -- check 28 only
+;; compares the declared set against OTHER sessions' supervision at the same
+;; instant (a blank id is on nobody's plan, so it passes vacuously) and check 30
+;; only compares it against the roster (a blank id is on nobody's roster, so it
+;; passes too). A schedule declaring {:proctor-supervision ["" "P. Okafor"]}
+;; therefore passes checks 1-31 and auto-commits at Phase 3 a supervision plan
+;; naming a nameless body -- the same fabricated-staff inflation HARD CHECK 24
+;; closed on the assignment route, reached through a different op. HARD CHECK 32
+;; closes it: every declared :proctor-supervision entry must be a NON-BLANK
+;; string (nil, non-string, empty, or whitespace-only entries are rejected).
+;; Rejected outright -- never held, never auto-committed at Phase 3. A schedule
+;; declaring no supervision passes vacuously: check 28 already treats an
+;; unasserted plan as nothing to double-book, and check 27's headcount bound is
+;; the separate staffing decision.
+
+(defn- has-blank-supervision-id?
+  "True when a :schedule-test-session declares at least one :proctor-supervision
+   entry that is not a non-blank string -- a supervisor with no identity."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})
+        sv (:proctor-supervision data)]
+    (boolean (some #(not (and (string? %) (not (str/blank? %))))
+                   sv))))
+
+(defn- hard-check-32-supervision-id-non-blank
+  "HARD CHECK 32: the :proctor-supervision ids a :schedule-test-session
+   declares must each be a non-blank string. Applies only to
+   :schedule-test-session; all other ops pass trivially (HARD CHECK 24 binds
+   the assignment route's :proctor/id). A schedule declaring no supervision
+   passes vacuously."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (if (has-blank-supervision-id? proposal)
+        {:pass? false :reason "schedule-supervisor-id-blank" :proposal proposal}
+        {:pass? true :reason "schedule-supervisor-ids-non-blank"}))))
+
+
 ;; === No Duplicate Proposal Id (HARD CHECK 29) ===
 ;; ISIC-855 test administration's audit trail is keyed by
 ;; :testadmn.proposal/id -- every committed, escalated, held, or rejected
@@ -1557,10 +1602,11 @@
         check29 (hard-check-29-no-duplicate-proposal-id store proposal)
         check30 (hard-check-30-no-self-supervision store proposal)
         check31 (hard-check-31-no-assignment-time-collision store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check8]
+        check32 (hard-check-32-supervision-id-non-blank proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

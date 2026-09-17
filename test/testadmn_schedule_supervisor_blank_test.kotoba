@@ -1,0 +1,103 @@
+;; testadmn_schedule_supervisor_blank_test — HARD CHECK 32: schedule-declared
+;; supervisor ids must be non-blank.
+;;
+;; ISIC-855 a supervisor the paper trail cannot name is a body the room can
+;; never verify. HARD CHECK 24 bound the assignment route's :proctor/id, but a
+;; :schedule-test-session's :proctor-supervision ids were never shape-checked:
+;; check 28's double-booking test passes vacuously (a blank id is on nobody's
+;; plan) and check 30's roster test passes too (a blank id sits on nobody's
+;; roster). HARD CHECK 32 rejects a schedule declaring a blank/nil supervisor
+;; outright — never held, never auto-committed at Phase 3.
+
+(ns testadmn-schedule-supervisor-blank-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [testadmn.store :as store]
+            [testadmn.governor :as gov]
+            [testadmn.operation :as op]))
+
+(defn- schedule-proposal
+  [session-id & {:keys [supervision] :or {supervision ["P. Okafor" "L. Marsh"]}}]
+  {:testadmn.proposal/id (str "ssb-" session-id)
+   :testadmn.proposal/type :schedule-test-session
+   :testadmn.proposal/effect :propose
+   :testadmn.proposal/target-session-id session-id
+   :testadmn.proposal/proposal-data
+   {:room "Gym A" :proctors 3 :proctor-supervision supervision}})
+
+(defn- base-store
+  "sess-001 registered @ 2026-07-15T09:00:00Z with roster #{s001 s002 s003}
+   and supervision #{P. Okafor L. Marsh} -- the baseline schedule declares
+   non-blank staff, so it passes."
+  []
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/name "SAT Administration 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002" "s003"}
+       :testadmn.test-session/supervision #{"P. Okafor" "L. Marsh"}})
+    s))
+
+(defn- check32 [result]
+  (some #(when (contains? #{"not-a-schedule"
+                            "schedule-supervisor-id-blank"
+                            "schedule-supervisor-ids-non-blank"}
+                          (:reason %))
+           %)
+        (:checks result)))
+
+(deftest test-non-blank-supervision-passes
+  (let [s (base-store)
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"))]
+    (is (true? (:accepted? result)))
+    (is (= "schedule-supervisor-ids-non-blank" (:reason (check32 result))))))
+
+(deftest test-empty-string-supervisor-rejected
+  (let [s (base-store)
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"
+                                     :supervision ["" "P. Okafor"]))]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-supervisor-id-blank" (:reason (check32 result))))))
+
+(deftest test-whitespace-supervisor-rejected
+  (let [s (base-store)
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"
+                                     :supervision ["   "]))]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-supervisor-id-blank" (:reason (check32 result))))))
+
+(deftest test-nil-supervisor-rejected
+  (let [s (base-store)
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"
+                                     :supervision [nil "L. Marsh"]))]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-supervisor-id-blank" (:reason (check32 result))))))
+
+(deftest test-unasserted-supervision-passes-vacuously
+  ;; no declared supervision: check 28 treats it as nothing to double-book and
+  ;; check 32 has no entry to inspect.
+  (let [s (base-store)
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"
+                                     :supervision []))]
+    (is (true? (:accepted? result)))
+    (is (= "schedule-supervisor-ids-non-blank" (:reason (check32 result))))))
+
+(deftest test-check32-guards-only-schedule-op
+  ;; The assignment route's :proctor/id stays bound by HARD CHECK 24; check 32
+  ;; passes trivially for every other op.
+  (let [s (base-store)
+        operation (op/make-operation :coordinate-proctor-assignment-proposal
+                                     "sess-001"
+                                     {:proctors [{:proctor/id ""
+                                                  :testadmn.proposal/proctor-impartial? true}]})
+        result (gov/evaluate-proposal s operation)]
+    (is (= "not-a-schedule" (:reason (check32 result))))))
+
+(deftest test-blank-supervisor-never-auto-commits-phase3
+  (let [s (base-store)
+        operation (op/make-operation :schedule-test-session
+                                     "sess-001"
+                                     {:room "Gym A" :proctors 2
+                                      :proctor-supervision ["P. Okafor" ""]})]
+    (testing "phase 3 would auto-commit a clean schedule, so a blank supervisor id must be REJECTED, not held"
+      (is (false? (:accepted? (gov/evaluate-proposal s operation)))))))
