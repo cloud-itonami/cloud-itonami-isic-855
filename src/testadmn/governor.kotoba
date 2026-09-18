@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Thirty-two HARD, permanent, un-overridable checks
+;; Thirty-three HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Thirty-two HARD checks (un-overridable):
+   Thirty-three HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -1530,6 +1530,51 @@
         {:pass? true :reason "schedule-supervisor-ids-non-blank"}))))
 
 
+;; === Schedule Supervisor Duplicate Within One Session (HARD CHECK 33) ===
+;; ISIC-855 one body cannot supervise two seats of the same room at the same
+;; instant -- counting it twice does not add a second pair of eyes, it
+;; INFLATES the plan's apparent coverage. HARD CHECK 28 closed the CROSS-SESSION
+;; side (the same id double-booked into two sessions at the same instant) and
+;; HARD CHECK 32 closed the shape side (every declared :proctor-supervision id
+;; non-blank), but the WITHIN-SESSION side was never bound: a
+;; :schedule-test-session declaring {:proctor-supervision ["P. Okafor"
+;; "P. Okafor" "L. Marsh"]} passes check 28 (each occurrence collides only
+;; with OTHER sessions' plans, not with itself), passes check 32 (both entries
+;; are non-blank), and passes check 27's coverage test (the duplicate still
+;; intersects the roster set), so Phase 3 auto-commits a supervision plan whose
+;; coverage count is a lie -- the same staff-inflation failure HARD CHECK 24
+;; and 32 closed on the identity axis, reached through the multiplicity axis.
+;; HARD CHECK 33 closes it: the non-blank :proctor-supervision entries a
+;; :schedule-test-session declares must be DISTINCT -- the first repeated
+;; entry rejects the whole schedule. Rejected outright -- never held, never
+;; auto-committed at Phase 3. A schedule declaring no supervision, or a single
+;; supervisor, passes vacuously: one entry cannot repeat.
+
+(defn- has-duplicate-supervision-id?
+  "True when a :schedule-test-session's non-blank :proctor-supervision entries
+   contain a repeated id -- one body counted as two seats."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})
+        sv (filter #(and (string? %) (not (str/blank? %)))
+                   (:proctor-supervision data))]
+    (boolean (some #(> (count (filter (partial = %) sv)) 1)
+                   sv))))
+
+(defn- hard-check-33-supervision-no-duplicate
+  "HARD CHECK 33: the :proctor-supervision ids a :schedule-test-session
+   declares must be distinct -- one supervisor counted twice does not add
+   coverage. Applies only to :schedule-test-session; all other ops pass
+   trivially. Blank/nil entries stay bound by HARD CHECK 32; a schedule
+   declaring no supervision passes vacuously."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (if (has-duplicate-supervision-id? proposal)
+        {:pass? false :reason "schedule-supervisor-duplicated" :proposal proposal}
+        {:pass? true :reason "schedule-supervisors-distinct"}))))
+
+
 ;; === No Duplicate Proposal Id (HARD CHECK 29) ===
 ;; ISIC-855 test administration's audit trail is keyed by
 ;; :testadmn.proposal/id -- every committed, escalated, held, or rejected
@@ -1603,10 +1648,11 @@
         check30 (hard-check-30-no-self-supervision store proposal)
         check31 (hard-check-31-no-assignment-time-collision store proposal)
         check32 (hard-check-32-supervision-id-non-blank proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check8]
+        check33 (hard-check-33-supervision-no-duplicate proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
