@@ -11,12 +11,12 @@ Educational support activities (ISIC 855) actor — Test administration logistic
 Actor modules (all `.cljc`, langgraph-clj StateGraph):
 - `testadmn.store` — Test session registry and proposal audit ledger
 - `testadmn.advisor` — LLM advisor interface (mock in this version)
-- `testadmn.governor` — Thirty-three HARD, permanent, un-overridable checks
+- `testadmn.governor` — Thirty-four HARD, permanent, un-overridable checks
 - `testadmn.phase` — Staged rollout (Phase 0→3)
 - `testadmn.operation` — Closed :propose-only op allowlist
 - `testadmn.sim` — Simulation and demo
 
-## Governor: Thirty-three HARD Checks
+## Governor: Thirty-four HARD Checks
 
 1. **Test-session verified** — target must exist AND be `:registered?`/`:verified?` in store
 2. **Effect is :propose** — any other :effect rejected outright
