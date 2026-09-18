@@ -1,0 +1,106 @@
+;; testadmn_schedule_supervisor_duplicate_test — HARD CHECK 33: the
+;; :proctor-supervision ids a :schedule-test-session declares must be
+;; distinct within the session.
+;;
+;; ISIC-855 one body cannot supervise two seats of the same room at the same
+;; instant. Check 28 closed the cross-session double-booking and check 32 the
+;; blank id, but a schedule repeating the same supervisor id inside its own
+;; :proctor-supervision list inflates the plan's apparent coverage: check 28
+;; collides occurrences only against OTHER sessions' plans, check 32 only
+;; checks shape, and check 27's coverage still intersects. HARD CHECK 33
+;; rejects such a schedule outright — never held, never auto-committed at
+;; Phase 3.
+
+(ns testadmn-schedule-supervisor-duplicate-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [testadmn.store :as store]
+            [testadmn.governor :as gov]
+            [testadmn.operation :as op]))
+
+(defn- schedule-proposal
+  [session-id & {:keys [supervision] :or {supervision ["P. Okafor" "L. Marsh"]}}]
+  {:testadmn.proposal/id (str "ssd-" session-id)
+   :testadmn.proposal/type :schedule-test-session
+   :testadmn.proposal/effect :propose
+   :testadmn.proposal/target-session-id session-id
+   :testadmn.proposal/proposal-data
+   {:room "Gym A" :proctors 3 :proctor-supervision supervision}})
+
+(defn- base-store
+  "sess-001 registered @ 2026-07-15T09:00:00Z with roster #{s001 s002 s003}
+   and supervision #{P. Okafor L. Marsh} -- the baseline schedule declares
+   distinct staff, so it passes."
+  []
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/name "SAT Administration 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002" "s003"}
+       :testadmn.test-session/supervision #{"P. Okafor" "L. Marsh"}})
+    s))
+
+(defn- check33 [result]
+  (some #(when (contains? #{"not-a-schedule"
+                            "schedule-supervisor-duplicated"
+                            "schedule-supervisors-distinct"}
+                          (:reason %))
+           %)
+        (:checks result)))
+
+(deftest test-distinct-supervision-passes
+  (let [s (base-store)
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"))]
+    (is (true? (:accepted? result)))
+    (is (= "schedule-supervisors-distinct" (:reason (check33 result))))))
+
+(deftest test-repeated-supervisor-rejected
+  (let [s (base-store)
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"
+                                     :supervision ["P. Okafor" "P. Okafor" "L. Marsh"]))]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-supervisor-duplicated" (:reason (check33 result))))))
+
+(deftest test-all-same-supervisor-rejected
+  (let [s (base-store)
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"
+                                     :supervision ["L. Marsh" "L. Marsh" "L. Marsh"]))]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-supervisor-duplicated" (:reason (check33 result))))))
+
+(deftest test-single-supervisor-passes-vacuously
+  ;; one entry cannot repeat
+  (let [s (base-store)
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"
+                                     :supervision ["P. Okafor"]))]
+    (is (true? (:accepted? result)))
+    (is (= "schedule-supervisors-distinct" (:reason (check33 result))))))
+
+(deftest test-unasserted-supervision-passes-vacuously
+  (let [s (base-store)
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"
+                                     :supervision []))]
+    (is (true? (:accepted? result)))
+    (is (= "schedule-supervisors-distinct" (:reason (check33 result))))))
+
+(deftest test-check33-guards-only-schedule-op
+  ;; The assignment route stays bound by HARD CHECK 24; check 33 passes
+  ;; trivially for every other op.
+  (let [s (base-store)
+        operation (op/make-operation :coordinate-proctor-assignment-proposal
+                                     "sess-001"
+                                     {:proctors [{:proctor/id "P. Okafor"
+                                                  :testadmn.proposal/proctor-impartial? true}
+                                                 {:proctor/id "P. Okafor"
+                                                  :testadmn.proposal/proctor-impartial? true}]})
+        result (gov/evaluate-proposal s operation)]
+    (is (= "not-a-schedule" (:reason (check33 result))))))
+
+(deftest test-duplicate-supervisor-never-auto-commits-phase3
+  (let [s (base-store)
+        operation (op/make-operation :schedule-test-session
+                                     "sess-001"
+                                     {:room "Gym A" :proctors 2
+                                      :proctor-supervision ["P. Okafor" "P. Okafor"]})]
+    (testing "phase 3 would auto-commit a clean schedule, so a duplicated supervisor id must be REJECTED, not held"
+      (is (false? (:accepted? (gov/evaluate-proposal s operation)))))))
