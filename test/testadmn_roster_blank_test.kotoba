@@ -1,0 +1,105 @@
+;; testadmn_roster_blank_test — HARD CHECK 35: enrolled roster ids must be
+;; non-blank strings.
+;;
+;; ISIC-855 a seated examinee is a person, not a placeholder. HARD CHECK 18
+;; requires a non-empty roster, but never inspects the ids: a roster carrying
+;; a blank / whitespace-only / non-string member passes 18 and auto-commits a
+;; fabricated seat. HARD CHECK 35 rejects it outright — never held, never
+;; auto-committed at Phase 3.
+
+(ns testadmn-roster-blank-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [testadmn.store :as store]
+            [testadmn.governor :as gov]
+            [testadmn.operation :as op]))
+
+(defn- schedule-proposal
+  [session-id]
+  {:testadmn.proposal/id (str "rb-" session-id)
+   :testadmn.proposal/type :schedule-test-session
+   :testadmn.proposal/effect :propose
+   :testadmn.proposal/target-session-id session-id
+   :testadmn.proposal/proposal-data
+   {:room "Gym A" :proctors 3 :proctor-supervision ["P. Okafor" "L. Marsh"]}})
+
+(defn- base-store
+  "sess-001 registered @ 2026-07-15T09:00:00Z with a clean roster
+   #{s001 s002 s003} -- the baseline schedule passes all checks."
+  [roster]
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/name "SAT Administration 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster roster
+       :testadmn.test-session/supervision #{}})))
+       ;; NOTE: session supervision left empty so check 30 never collides
+       ;; with the declared :proctor-supervision on the schedule proposal.
+
+(defn- check35 [result]
+  (some #(when (contains? #{"not-a-schedule"
+                            "schedule-roster-unasserted"
+                            "schedule-roster-id-blank"
+                            "schedule-roster-ids-non-blank"}
+                          (:reason %))
+           %)
+        (:checks result)))
+
+(deftest test-clean-roster-passes
+  ;; Every roster id is a non-blank string: the baseline passes, and ops
+  ;; other than :schedule-test-session pass trivially.
+  (let [s (base-store #{"s001" "s002" "s003"})
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"))]
+    (is (true? (:accepted? result)))
+    (is (= "all-checks-pass" (:reason result)))
+    (is (= "schedule-roster-ids-non-blank" (:reason (check35 result))))))
+
+(deftest test-blank-roster-id-rejected
+  ;; One blank id in the roster: a fabricated, nameless seat -- rejected
+  ;; outright with the blank-id reason.
+  (let [s (base-store #{"s001" "" "s003"})
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"))]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-roster-id-blank" (:reason result)))
+    (is (= "schedule-roster-id-blank" (:reason (check35 result))))))
+
+(deftest test-whitespace-roster-id-rejected
+  ;; A whitespace-only id is as nameless as "" -- same rejection.
+  (let [s (base-store #{"s001" "   "})
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"))]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-roster-id-blank" (:reason result)))))
+
+(deftest test-nil-roster-id-rejected
+  ;; A nil member (Datomic-blob edge): not a non-blank string -- rejected.
+  (let [s (base-store #{nil})
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"))]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-roster-id-blank" (:reason result)))))
+
+(deftest test-non-string-roster-id-rejected
+  ;; A numeric member -- ids are identity strings, not counters -- rejected.
+  (let [s (base-store #{"s001" 42})
+        result (gov/evaluate-proposal s (schedule-proposal "sess-001"))]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-roster-id-blank" (:reason result)))))
+
+(deftest test-other-ops-pass-trivially
+  ;; HARD CHECK 35 governs only :schedule-test-session; an attendance note on
+  ;; a session whose roster contains a blank id passes check 35 vacuously --
+  ;; the blank id there is check 6's enrollment-binding decision, and the
+  ;; attendance op has its own id requirements.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" ""}})
+    (let [proposal {:testadmn.proposal/id "rb-other"
+                    :testadmn.proposal/type :flag-safety-concern
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/proposal-data
+                    {:categories [:facility-hazard]
+                     :facility-id "facility-101"}}
+          result (gov/evaluate-proposal s proposal)]
+      (is (= "not-a-schedule" (:reason (check35 result)))))))
