@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Thirty-four HARD, permanent, un-overridable checks
+;; Thirty-five HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Thirty-four HARD checks (un-overridable):
+   Thirty-five HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -1575,6 +1575,48 @@
         {:pass? true :reason "schedule-supervisors-distinct"}))))
 
 
+;; === Enrolled Roster Ids Non-Blank (HARD CHECK 35) ===
+;; ISIC-855 a seated examinee is a PERSON, not a placeholder. HARD CHECK 18
+;; requires the target's roster to be non-empty, and HARD CHECK 26/30 compare
+;; roster SETS across sessions -- but no check ever inspected the SHAPE of the
+;; ids themselves: a roster like #{"s001" ""} (or containing nil, a number,
+;; or a whitespace-only entry) passes check 18 (the set is non-empty), passes
+;; check 26 (the blank member collides only with another blank member's
+;; session), and passes check 30 (the blank id is on no supervision plan), so
+;; Phase 3 auto-commits a seating plan for a NAMELESS body -- a fabricated
+;; seat that inflates the apparent enrollment with a person nobody can
+;; produce at check-in. This is the roster-side analog of HARD CHECK 32's
+;; blank-supervisor rule, reached through the seating axis. HARD CHECK 35
+;; closes it: every enrolled roster id of a :schedule-test-session's target
+;; must be a NON-BLANK string. Rejected outright -- never held, never
+;; auto-committed at Phase 3. A roster-less session passes vacuously: check
+;; 18 already rejects it outright.
+
+(defn- has-blank-roster-id?
+  "True when the target session's normalized roster contains an id that is
+   not a non-blank string -- a seat for a nameless body."
+  [session]
+  (let [roster (session-roster-set session)]
+    (boolean (some #(not (and (string? %) (not (str/blank? %)))) roster))))
+
+(defn- hard-check-35-roster-id-non-blank
+  "HARD CHECK 35: every enrolled test-taker id on a :schedule-test-session
+   target's :testadmn.test-session/roster must be a non-blank string. Applies
+   only to :schedule-test-session; all other ops pass trivially. A roster-less
+   session passes vacuously (HARD CHECK 18 rejects it outright)."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [session (store/lookup-session store target-session-id)]
+        (if (empty? (session-roster-set session))
+          {:pass? true :reason "schedule-roster-unasserted"}
+          (if (has-blank-roster-id? session)
+            {:pass? false :reason "schedule-roster-id-blank"
+             :session-id target-session-id :proposal proposal}
+            {:pass? true :reason "schedule-roster-ids-non-blank"}))))))
+
+
 ;; === No Duplicate Proposal Id (HARD CHECK 29) ===
 ;; ISIC-855 test administration's audit trail is keyed by
 ;; :testadmn.proposal/id -- every committed, escalated, held, or rejected
@@ -1711,10 +1753,11 @@
         check32 (hard-check-32-supervision-id-non-blank proposal)
         check33 (hard-check-33-supervision-no-duplicate proposal)
         check34 (hard-check-34-no-supervisor-seated-elsewhere store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check8]
+        check35 (hard-check-35-roster-id-non-blank store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check35 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check35) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
