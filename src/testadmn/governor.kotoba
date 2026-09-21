@@ -1715,6 +1715,59 @@
                   {:pass? true :reason "schedule-proctor-seating-free"})))))))))
 
 
+
+;; === Declared Staff Count Must Match Headcount (HARD CHECK 36) ===
+;; ISIC-855 the supervision a room actually has is a count of NAMED bodies,
+;; not a number typed into a form. A :schedule-test-session asserts two
+;; figures that check 27 then multiplies: the :proctors headcount (the
+;; capacity basis, roster <= proctors * max-seats-per-proctor) and the
+;; :proctor-supervision ids (the staff who will actually stand in the room).
+;; Nothing has ever COMPARED them: a schedule declaring {:proctors 4
+;; :proctor-supervision ["P. Okafor"]} passes checks 1-35 -- check 9 sees a
+;; positive headcount, check 27 grants capacity for 100 seated test-takers
+;; on the headcount, and checks 28/30/32/33 test only the shape and overlap
+;; of the ONE named id -- and auto-commits at Phase 3 a plan claiming four
+;; supervisors while naming one: three proctors of pure paperwork, seats
+;; watched by nobody. HARD CHECK 36 closes it: when a schedule asserts BOTH
+;; a positive headcount AND non-empty supervision, the count of distinct
+;; non-blank supervision ids must equal the declared headcount. A
+;; mismatched schedule is rejected outright -- never held, never
+;; auto-committed at Phase 3. Unasserted supervision passes vacuously
+;; (check 27's sufficiency decision covers the headcount-only plan), and a
+;; missing headcount is check 9's earlier decision.
+
+(defn- hard-check-36-staff-count-matches-headcount
+  "HARD CHECK 36: a :schedule-test-session that declares both a positive
+   :proctors headcount and non-empty :proctor-supervision ids must name
+   exactly as many distinct non-blank staff as the declared headcount --
+   supervision claimed on paper but never assigned to a body is the
+   supervisor-side analog of the fabricated-body inflation checks 13/14/15
+   close. Applies only to :schedule-test-session; all other ops pass
+   trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [headcount (declared-proctor-headcount proposal)
+            data (get proposal :testadmn.proposal/proposal-data {})
+            staff (into #{}
+                        (filter #(and (string? %) (not (str/blank? %)))
+                                (:proctor-supervision data)))]
+        (if (or (not (and (integer? headcount) (pos? headcount)))
+                (empty? staff))
+          ;; headcount unasserted is check 9's decision; supervision
+          ;; unasserted is check 27's vacuous pass -- this check only
+          ;; compares two ASSERTED figures
+          {:pass? true :reason "schedule-staff-count-unasserted"}
+          (if (= (count staff) headcount)
+            {:pass? true :reason "schedule-staff-count-matched"}
+            {:pass? false :reason "schedule-staff-count-mismatch"
+             :session-id (get proposal :testadmn.proposal/target-session-id)
+             :proctors headcount
+             :named-staff (vec (sort staff))
+             :proposal proposal}))))))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -1754,10 +1807,11 @@
         check33 (hard-check-33-supervision-no-duplicate proposal)
         check34 (hard-check-34-no-supervisor-seated-elsewhere store proposal)
         check35 (hard-check-35-roster-id-non-blank store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check35 check8]
+        check36 (hard-check-36-staff-count-matches-headcount proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check35 check36 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check35) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check35) (:pass? check36) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

@@ -1,0 +1,146 @@
+;; testadmn_staff_count_test — HARD CHECK 36: schedule-declared staff count
+;; must match the declared proctor headcount.
+;;
+;; A :schedule-test-session asserts two supervision figures that HARD CHECK 27
+;; then multiplies: the :proctors headcount (capacity basis, roster <=
+;; proctors * max-seats-per-proctor) and the :proctor-supervision ids (the
+;; bodies who will actually stand in the room). Checks 28/30/32/33 test only
+;; the shape and overlap of the named ids — nothing compared the two FIGURES.
+;; A schedule declaring 4 proctors while naming 1 staff id passes checks 1-35
+;; and would auto-commit at Phase 3 a plan claiming four supervisors while
+;; naming one: three proctors of pure paperwork, seats watched by nobody.
+;; HARD CHECK 36 rejects the mismatch outright.
+
+(ns testadmn-staff-count-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [testadmn.store :as store]
+            [testadmn.governor :as gov]
+            [testadmn.operation :as op]))
+
+(defn- session-store []
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/name "SAT Administration 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002"}})
+    s))
+
+(defn- schedule-proposal [& {:keys [proctors supervision]
+                             :or {proctors 1 supervision nil}}]
+  (let [data (merge {:room "Gym A" :proctors proctors}
+                    (when supervision {:proctor-supervision supervision}))]
+    {:testadmn.proposal/id "sc-1"
+     :testadmn.proposal/type :schedule-test-session
+     :testadmn.proposal/effect :propose
+     :testadmn.proposal/target-session-id "sess-001"
+     :testadmn.proposal/proposal-data data}))
+
+(defn- check36 [result]
+  (some #(when (contains? #{"not-a-schedule"
+                            "schedule-staff-count-unasserted"
+                            "schedule-staff-count-matched"
+                            "schedule-staff-count-mismatch"}
+                          (:reason %))
+           %)
+        (:checks result)))
+
+(deftest test-matched-staff-count-passes
+  ;; A schedule naming exactly as many distinct staff as the declared
+  ;; headcount passes HARD CHECK 36 (and the whole chain).
+  (doseq [[n label] [[1 "one"] [3 "three"]]]
+    (testing label
+      (let [staff (vec (map #(str "P. Proctor-" %) (range n)))
+            result (gov/evaluate-proposal (session-store)
+                                          (schedule-proposal :proctors n
+                                                             :supervision staff))]
+        (is (true? (:accepted? result)))
+        (is (= "all-checks-pass" (:reason result)))
+        (is (= "schedule-staff-count-matched" (:reason (check36 result))))))))
+
+(deftest test-inflated-headcount-rejected
+  ;; 4 proctors claimed, 1 body named: three proctors of pure paperwork.
+  (let [result (gov/evaluate-proposal (session-store)
+                                      (schedule-proposal :proctors 4
+                                                         :supervision ["P. Okafor"]))
+        c (check36 result)]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-staff-count-mismatch" (:reason result)))
+    (is (= 4 (:proctors c)))
+    (is (= ["P. Okafor"] (:named-staff c)))))
+
+(deftest test-deflated-headcount-rejected
+  ;; The reverse mismatch is the same lie in the other direction: the plan
+  ;; names two bodies but claims one.
+  (let [result (gov/evaluate-proposal (session-store)
+                                      (schedule-proposal :proctors 1
+                                                         :supervision ["P. Okafor" "L. Marsh"]))]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-staff-count-mismatch" (:reason result)))))
+
+(deftest test-duplicate-staff-ids-count-once
+  ;; HARD CHECK 33 already rejects a duplicated supervision id; this check
+  ;; counts DISTINCT ids, so a "3 proctors, 3 entries" plan whose entries
+  ;; repeat one id is still a 1-body plan and rejects here too.
+  (let [result (gov/evaluate-proposal (session-store)
+                                      (schedule-proposal :proctors 3
+                                                         :supervision ["P. Okafor" "P. Okafor" "L. Marsh"]))]
+    (is (false? (:accepted? result)))
+    (is (= "schedule-staff-count-mismatch" (:reason (check36 result))))))
+
+(deftest test-headcount-only-schedule-passes-vacuously
+  ;; A schedule asserting only the headcount (no :proctor-supervision) is the
+  ;; classic demo shape: HARD CHECK 27's sufficiency bound covers it, and
+  ;; nothing named can mismatch — check 36 passes vacuously.
+  (let [result (gov/evaluate-proposal (session-store)
+                                      (schedule-proposal :proctors 3))]
+    (is (true? (:accepted? result)))
+    (is (= "schedule-staff-count-unasserted" (:reason (check36 result))))))
+
+(deftest test-non-schedule-op-unaffected
+  ;; HARD CHECK 36 applies only to :schedule-test-session.
+  (let [s (session-store)
+        proposal {:testadmn.proposal/id "sc-att"
+                  :testadmn.proposal/type :log-attendance-note
+                  :testadmn.proposal/effect :propose
+                  :testadmn.proposal/target-session-id "sess-001"
+                  :testadmn.proposal/proposal-data
+                  {:check-in ["s001" "s002"]}}
+        result (gov/evaluate-proposal s proposal)]
+    (is (true? (:accepted? result)))
+    (is (= "not-a-schedule" (:reason (check36 result))))))
+
+(deftest test-mismatched-staff-count-never-auto-commits-phase3
+  ;; End to end at Phase 3: the 4-claimed/1-named schedule is rejected, never
+  ;; auto-committed as a supervision plan with phantom proctors.
+  (let [s (session-store)
+        operation (op/make-operation :schedule-test-session "sess-001"
+                                     {:room "Gym A" :proctors 4
+                                      :proctor-supervision ["P. Okafor"]})
+        result (op/execute-operation operation s 3)]
+    (is (= :rejected (:status result)))
+    (is (= "schedule-staff-count-mismatch" (:reason result)))))
+
+(deftest test-matched-staff-count-auto-commits-phase3
+  ;; A fully-matched plan still auto-commits at Phase 3.
+  (let [s (session-store)
+        operation (op/make-operation :schedule-test-session "sess-001"
+                                     {:room "Gym A" :proctors 2
+                                      :proctor-supervision ["P. Okafor" "L. Marsh"]})
+        result (op/execute-operation operation s 3)]
+    (is (= :auto-committed (:status result)))))
+
+(deftest test-check8-still-last-after-check36
+  ;; HARD CHECK 8 stays the LAST entry of the governor's :checks vector, so
+  ;; testadmn_integrity_test's (last :checks) contract keeps holding after
+  ;; HARD CHECK 36 is added.
+  (let [s (session-store)
+        proposal {:testadmn.proposal/id "sc-36b"
+                  :testadmn.proposal/type :log-attendance-note
+                  :testadmn.proposal/effect :propose
+                  :testadmn.proposal/target-session-id "sess-001"
+                  :testadmn.proposal/proposal-data
+                  {:check-in ["s001" "s002"]}}
+        result (gov/evaluate-proposal s proposal)
+        check8 (last (:checks result))]
+    (is (= "attendance-non-contradictory" (:reason check8)))))
