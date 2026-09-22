@@ -1,0 +1,102 @@
+;; testadmn_supply_quantity_test — HARD CHECK 37: supply quantities bounded by
+;; the request's own :supplies, positive integers only.
+;;
+;; HARD CHECK 7 (bounded consumable allowlist) inspects ONLY the :supplies
+;; list. A :coordinate-supply-request's optional :quantities map was never
+;; read by any check, so a quantities entry keyed by an item never named in
+;; :supplies (e.g. "answer-keys") slipped a disallowed line item into the
+;; consumed-stock ledger without meeting the closed set, and a zero/negative
+;; or non-integer quantity corrupted the stock accounting a Phase 3
+;; auto-commit records as physically delivered. HARD CHECK 37 rejects both —
+;; never held, never auto-committed at Phase 3. Unasserted :quantities passes
+;; vacuously (check 7 still binds the item list itself).
+
+(ns testadmn-supply-quantity-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [testadmn.store :as store]
+            [testadmn.governor :as gov]
+            [testadmn.operation :as op]))
+
+(defn- supply-proposal [data]
+  {:testadmn.proposal/id "p37"
+   :testadmn.proposal/type :coordinate-supply-request
+   :testadmn.proposal/effect :propose
+   :testadmn.proposal/target-session-id "sess-001"
+   :testadmn.proposal/proposal-data data})
+
+(defn- store-with-session []
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"})
+    s))
+
+(deftest test-hard-check-37-unasserted-quantities-pass
+  ;; A request without :quantities passes vacuously; check 7 still binds items.
+  (let [s (store-with-session)
+        result (gov/evaluate-proposal s
+                 (supply-proposal {:supplies ["answer-sheets" "pencils"]}))]
+    (is (true? (:accepted? result)))
+    (is (= "all-checks-pass" (:reason result)))))
+
+(deftest test-hard-check-37-bounded-quantities-pass
+  ;; Quantities over the request's own named supplies, positive integers.
+  (let [s (store-with-session)
+        result (gov/evaluate-proposal s
+                 (supply-proposal {:supplies ["pencils" "scratch-paper"]
+                                   :quantities {"pencils" 12
+                                                "scratch-paper" 30}}))]
+    (is (true? (:accepted? result)))
+    (is (= "all-checks-pass" (:reason result)))))
+
+(deftest test-hard-check-37-unlisted-quantity-key-rejected
+  ;; A quantities key the request never named in :supplies smuggles a
+  ;; disallowed line item past check 7's closed set.
+  (let [s (store-with-session)
+        result (gov/evaluate-proposal s
+                 (supply-proposal {:supplies ["pencils"]
+                                   :quantities {"answer-keys" 10}}))]
+    (is (false? (:accepted? result)))
+    (is (= "supply-quantity-invalid" (:reason result)))))
+
+(deftest test-hard-check-37-zero-quantity-rejected
+  ;; Zero is no physical delivery — corrupted stock accounting.
+  (let [s (store-with-session)
+        result (gov/evaluate-proposal s
+                 (supply-proposal {:supplies ["pencils"]
+                                   :quantities {"pencils" 0}}))]
+    (is (false? (:accepted? result)))
+    (is (= "supply-quantity-invalid" (:reason result)))))
+
+(deftest test-hard-check-37-negative-quantity-rejected
+  ;; A negative quantity debits the ledger instead of delivering stock.
+  (let [s (store-with-session)
+        result (gov/evaluate-proposal s
+                 (supply-proposal {:supplies ["pencils"]
+                                   :quantities {"pencils" -5}}))]
+    (is (false? (:accepted? result)))
+    (is (= "supply-quantity-invalid" (:reason result)))))
+
+(deftest test-hard-check-37-fractional-quantity-rejected
+  ;; Quantities are counts of physical items, never fractions.
+  (let [s (store-with-session)
+        result (gov/evaluate-proposal s
+                 (supply-proposal {:supplies ["pencils"]
+                                   :quantities {"pencils" 2.5}}))]
+    (is (false? (:accepted? result)))
+    (is (= "supply-quantity-invalid" (:reason result)))))
+
+(deftest test-hard-check-37-other-ops-pass-trivially
+  ;; The check only guards :coordinate-supply-request.
+  (let [s (store-with-session)
+        proposal {:testadmn.proposal/id "p37x"
+                  :testadmn.proposal/type :schedule-test-session
+                  :testadmn.proposal/effect :propose
+                  :testadmn.proposal/target-session-id "sess-001"
+                  :testadmn.proposal/proposal-data
+                  {:room "Gym A" :proctors 3
+                   :proctor-supervision ["P1" "P2" "P3"]
+                   :quantities {"pencils" -1}}}
+        result (gov/evaluate-proposal s proposal)]
+    (is (true? (:accepted? result)))
+    (is (= "all-checks-pass" (:reason result)))))
