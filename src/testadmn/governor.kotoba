@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Thirty-five HARD, permanent, un-overridable checks
+;; Thirty-seven HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Thirty-five HARD checks (un-overridable):
+   Thirty-seven HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -1768,6 +1768,59 @@
              :proposal proposal}))))))
 
 
+;; === Supply Quantities Bounded By The Allowlist (HARD CHECK 37) ===
+;; ISIC-855 a supply request's stock ledger is a count of physical items, not
+;; freeform metadata. HARD CHECK 7 (bounded consumable allowlist) inspects
+;; ONLY the :supplies list -- the optional :quantities map a
+;; :coordinate-supply-request may carry has never been read by any check. Two
+;; holes follow: (1) a quantities entry keyed by an item NEVER listed in
+;; :supplies (e.g. {:quantities {"answer-keys" 10}} with
+;; :supplies ["pencils"]) slips a disallowed line item into the consumed-stock
+;; ledger without ever meeting the closed set; (2) a non-integer, zero, or
+;; negative quantity ({"pencils" 0} or {"pencils" -5}) corrupts the stock
+;; accounting a Phase 3 auto-commit records as physically delivered. HARD
+;; CHECK 37 closes it: when a :coordinate-supply-request declares :quantities,
+;; every key must be one of the request's own named :supplies (which check 7
+;; already forces into the closed allowlist) and every value must be a
+;; positive integer. An unasserted :quantities passes vacuously (the request
+;; is still bound by check 7's item allowlist); a violated one is rejected
+;; outright -- never held, never auto-committed at Phase 3.
+
+(defn- supply-quantity-entries
+  "The {:item quantity} map a supply request declares, or nil when none."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})]
+    (let [q (:quantities data)]
+      (when (map? q) q))))
+
+(defn- has-supply-quantity-violation?
+  "True when some :quantities key is not one of the request's own named
+  :supplies, or some value is not a positive integer."
+  [proposal]
+  (let [q (supply-quantity-entries proposal)
+        items (set (map str/lower (supply-item-entries proposal)))]
+    (boolean (some (fn [[k v]]
+                     (or (not (contains? items (str/lower (str k))))
+                         (not (and (integer? v) (pos? v)))))
+                   q))))
+
+(defn- hard-check-37-supply-quantities-bounded
+  "HARD CHECK 37: a :coordinate-supply-request's :quantities map may only
+  quantify items the request already names in :supplies, with positive
+  integer values. Applies only to :coordinate-supply-request; all other ops
+  pass trivially. Unasserted quantities pass vacuously (check 7 still binds
+  the item list itself)."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :coordinate-supply-request)
+      {:pass? true :reason "not-a-supply-request"}
+      (if (nil? (supply-quantity-entries proposal))
+        {:pass? true :reason "supply-quantity-unasserted"}
+        (if (has-supply-quantity-violation? proposal)
+          {:pass? false :reason "supply-quantity-invalid" :proposal proposal}
+          {:pass? true :reason "supply-quantities-bounded"})))))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -1808,10 +1861,11 @@
         check34 (hard-check-34-no-supervisor-seated-elsewhere store proposal)
         check35 (hard-check-35-roster-id-non-blank store proposal)
         check36 (hard-check-36-staff-count-matches-headcount proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check35 check36 check8]
+        check37 (hard-check-37-supply-quantities-bounded proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check35 check36 check37 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check35) (:pass? check36) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check35) (:pass? check36) (:pass? check37) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
