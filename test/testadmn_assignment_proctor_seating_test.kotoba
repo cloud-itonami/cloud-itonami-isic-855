@@ -1,0 +1,217 @@
+;; testadmn_assignment_proctor_seating_test — HARD CHECK 38: no proctor
+;; assigned who is already a seated test-taker of another registered session
+;; at the same instant.
+;;
+;; ISIC-855 a person seated in one room cannot supervise another. HARD CHECK
+;; 34 bound the schedule route; the assignment route
+;; (:coordinate-proctor-assignment-proposal) was never compared against other
+;; sessions' SEATING: naming a proctor who is an enrolled test-taker of a
+;; different registered session at the target's own :scheduled-start passed
+;; checks 1-37 (check 21 compares only the TARGET's own roster, check 31
+;; compares only other sessions' supervision plans, checks 28/34 bind only the
+;; schedule route). HARD CHECK 38 rejects it outright — never held, never
+;; auto-committed at Phase 3.
+
+(ns testadmn-assignment-proctor-seating-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [testadmn.store :as store]
+            [testadmn.governor :as gov]
+            [testadmn.operation :as op]))
+
+(defn- pa-proposal
+  [session-id proctor-ids]
+  {:testadmn.proposal/id (str "aps-" session-id)
+   :testadmn.proposal/type :coordinate-proctor-assignment-proposal
+   :testadmn.proposal/effect :propose
+   :testadmn.proposal/target-session-id session-id
+   :testadmn.proposal/proposal-data
+   {:proctors (mapv (fn [p] {:proctor/id p
+                             :testadmn.proposal/proctor-impartial? true})
+                    proctor-ids)}})
+
+(defn- base-store
+  "sess-001 registered @ 2026-07-15T09:00:00Z seating T. Nakagawa — T. Nakagawa
+   is busy SITTING at that instant. The caller decides the registered sibling
+   sess-002."
+  []
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/name "SAT Administration 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"T. Nakagawa"}})
+    s))
+
+(defn- check38 [result]
+  (some #(when (contains? #{"not-a-proctor-assignment"
+                            "assignment-start-time-unasserted"
+                            "assignment-proctors-unasserted"
+                            "assignment-proctor-seated-elsewhere"
+                            "assignment-proctor-seating-free"}
+                          (:reason %))
+           %)
+        (:checks result)))
+
+(deftest test-proctor-not-seated-elsewhere-passes
+  ;; The target assigns D. Reyes, who is not seated in any registered session
+  ;; at that instant: the assignment commits cleanly.
+  (let [s (base-store)]
+    (store/register-session! s "sess-002"
+      {:testadmn.test-session/name "ACT Administration 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-204"
+       :testadmn.test-session/roster #{}})
+    (let [result (gov/evaluate-proposal s (pa-proposal "sess-002" ["D. Reyes"]))]
+      (is (true? (:accepted? result)))
+      (is (= "all-checks-pass" (:reason result)))
+      (is (= "assignment-proctor-seating-free" (:reason (check38 result)))))))
+
+(deftest test-proctor-seated-elsewhere-rejected
+  ;; sess-002 starts at the SAME instant as sess-001 and assigns T. Nakagawa,
+  ;; already a seated test-taker of sess-001: one body cannot sit one exam and
+  ;; supervise another — rejected, with the collision partner and the seated
+  ;; staff member named.
+  (let [s (base-store)]
+    (store/register-session! s "sess-002"
+      {:testadmn.test-session/name "SAT Retake Annex 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-204"
+       :testadmn.test-session/roster #{}})
+    (let [result (gov/evaluate-proposal s (pa-proposal "sess-002" ["T. Nakagawa"]))
+          c (check38 result)]
+      (is (false? (:accepted? result)))
+      (is (= "assignment-proctor-seated-elsewhere" (:reason result)))
+      (is (= "sess-002" (:session-id c)))
+      (is (= "2026-07-15T09:00:00Z" (:scheduled-start c)))
+      (is (= [{:session "sess-001" :test-takers ["T. Nakagawa"]}] (:collisions c))))))
+
+(deftest test-same-person-seated-different-time-is-fine
+  ;; A person legitimately sits a morning exam and supervises an afternoon
+  ;; one: the collision is only against sessions at the SAME instant.
+  (let [s (base-store)]
+    (store/register-session! s "sess-002"
+      {:testadmn.test-session/name "SAT Afternoon 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T13:00:00Z"
+       :testadmn.test-session/facility-id "facility-204"
+       :testadmn.test-session/roster #{}})
+    (let [result (gov/evaluate-proposal s (pa-proposal "sess-002" ["T. Nakagawa"]))]
+      (is (true? (:accepted? result)))
+      (is (= "all-checks-pass" (:reason result))))))
+
+(deftest test-unregistered-twin-seats-nobody
+  ;; A session sharing the instant and the roster member but NOT registered
+  ;; cannot seat anybody: only registered sessions block staff seating.
+  (let [s (store/new-mem-store)]
+    (store/create-session! s "twin-draft"
+      {:testadmn.test-session/name "Draft twin"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-204"
+       :testadmn.test-session/roster #{"T. Nakagawa"}})
+    (store/register-session! s "sess-002"
+      {:testadmn.test-session/name "SAT Administration 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{}})
+    (let [result (gov/evaluate-proposal s (pa-proposal "sess-002" ["T. Nakagawa"]))]
+      (is (true? (:accepted? result)))
+      (is (= "all-checks-pass" (:reason result))))))
+
+(deftest test-targets-own-roster-stays-check-21s-decision
+  ;; A proctor who is on the TARGET's own roster is check 21's rejection;
+  ;; check 38 compares only OTHER sessions, so it passes here while the whole
+  ;; proposal still rejects with check 21's reason.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-target"
+      {:testadmn.test-session/name "SAT Administration 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"A. Smith"}})
+    (let [result (gov/evaluate-proposal s (pa-proposal "sess-target" ["A. Smith"]))]
+      (is (false? (:accepted? result)))
+      (is (= "proctor-is-enrolled-test-taker" (:reason result)))
+      (is (= "assignment-proctor-seating-free" (:reason (check38 result)))))))
+
+(deftest test-time-less-target-defers-vacuously
+  ;; A blank start on the target yields no instant key, so check 38 defers
+  ;; ("assignment-start-time-unasserted"); the whole proposal is still
+  ;; rejected EARLIER by HARD CHECK 20, which requires a downstream target
+  ;; to carry a concrete start -- check 38's vacuous deferral never
+  ;; overrides that upstream decision.
+  (let [s (base-store)]
+    (store/register-session! s "sess-002"
+      {:testadmn.test-session/name "Time-less twin"
+       :testadmn.test-session/scheduled-start ""
+       :testadmn.test-session/facility-id "facility-204"
+       :testadmn.test-session/roster #{}})
+    (let [result (gov/evaluate-proposal s (pa-proposal "sess-002" ["T. Nakagawa"]))
+          c (check38 result)]
+      (is (false? (:accepted? result)))
+      (is (= "downstream-session-missing-start" (:reason result)))
+      (is (= "assignment-start-time-unasserted" (:reason c))))))
+
+(deftest test-non-assignment-op-passes-trivially
+  ;; HARD CHECK 38 binds only :coordinate-proctor-assignment-proposal.
+  (let [s (base-store)
+        proposal {:testadmn.proposal/id "aps-att"
+                  :testadmn.proposal/type :log-attendance-note
+                  :testadmn.proposal/effect :propose
+                  :testadmn.proposal/target-session-id "sess-001"
+                  :testadmn.proposal/proposal-data
+                  {:check-in [] :absent []}}
+        result (gov/evaluate-proposal s proposal)]
+    (is (= "not-a-proctor-assignment" (:reason (check38 result))))))
+
+(deftest test-assignment-seating-never-auto-commits-phase3
+  ;; End to end at Phase 3: the colliding assignment is rejected, never
+  ;; auto-committed.
+  (let [s (base-store)]
+    (store/register-session! s "sess-002"
+      {:testadmn.test-session/name "SAT Retake Annex 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-204"
+       :testadmn.test-session/roster #{}})
+    (let [operation (op/make-operation :coordinate-proctor-assignment-proposal
+                                       "sess-002"
+                                       {:proctors [{:proctor/id "T. Nakagawa"
+                                                    :testadmn.proposal/proctor-impartial? true}]})
+          result (op/execute-operation operation s 3)]
+      (is (= :rejected (:status result)))
+      (is (= "assignment-proctor-seated-elsewhere" (:reason result))))))
+
+(deftest test-check8-still-last-after-check38
+  ;; HARD CHECK 8 stays the LAST entry of the governor's :checks vector, so
+  ;; testadmn_integrity_test's (last :checks) contract keeps holding after
+  ;; HARD CHECK 38 is added.
+  (let [s (base-store)
+        proposal {:testadmn.proposal/id "aps-38b"
+                  :testadmn.proposal/type :log-attendance-note
+                  :testadmn.proposal/effect :propose
+                  :testadmn.proposal/target-session-id "sess-001"
+                  :testadmn.proposal/proposal-data
+                  {:check-in [] :absent []}}
+        result (gov/evaluate-proposal s proposal)
+        check8 (last (:checks result))]
+    (is (= "attendance-non-contradictory" (:reason check8)))))
+
+(deftest test-assignment-seating-parity-across-backends
+  ;; The assignment-seating check reads the same on the Datomic-backed store:
+  ;; the roster set round-trips and still trips check 38.
+  (doseq [[make-store label] [[store/new-mem-store "MemStore"]
+                              [store/new-datomic-store "DatomicStore"]]]
+    (testing label
+      (let [s (make-store)]
+        (store/register-session! s "sess-001"
+          {:testadmn.test-session/name "SAT Administration 2026-07-15"
+           :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+           :testadmn.test-session/facility-id "facility-101"
+           :testadmn.test-session/roster #{"T. Nakagawa"}})
+        (store/register-session! s "sess-002"
+          {:testadmn.test-session/name "SAT Retake Annex 2026-07-15"
+           :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+           :testadmn.test-session/facility-id "facility-204"
+           :testadmn.test-session/roster #{}})
+        (let [result (gov/evaluate-proposal s (pa-proposal "sess-002" ["T. Nakagawa"]))]
+          (is (false? (:accepted? result)))
+          (is (= "assignment-proctor-seated-elsewhere" (:reason result)))
+          (is (= [{:session "sess-001" :test-takers ["T. Nakagawa"]}]
+                 (:collisions (check38 result)))))))))
