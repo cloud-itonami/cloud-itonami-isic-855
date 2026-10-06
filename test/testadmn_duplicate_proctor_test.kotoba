@@ -10,7 +10,7 @@
 ;; Phase 3.
 
 (ns testadmn-duplicate-proctor-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is testing]]
             [testadmn.store :as store]
             [testadmn.governor :as gov]
             [testadmn.operation :as op]))

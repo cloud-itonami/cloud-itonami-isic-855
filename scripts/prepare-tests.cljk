@@ -1,0 +1,17 @@
+(ns prepare-tests
+  (:require [test-tree :as tree] ["fs" :as fs]))
+;; The renderer depends on a JVM-only build-time skin API. Keep its scope
+;; explicit: this gate executes every actor/core test, not HTML rendering.
+(def namespaces (sort (remove #{'testadmn-render-test} (tree/prepare! ".test-tree"))))
+;; These two JVM-only presentation files are not actor-core inputs. Remove
+;; their mirrors from this explicitly scoped lint/test tree as well.
+(doseq [file [".test-tree/testadmn/render_html.cljc" ".test-tree/testadmn_render_test.cljc"]]
+  (.unlinkSync fs file))
+(when (empty? namespaces) (throw (ex-info "no actor test namespaces found" {})))
+(.writeFileSync fs ".test-tree/runner.cljk"
+ (str "(ns actor-test-runner (:require [cljs.test :as t] "
+      (apply str (map #(str "[" % "] ") namespaces)) "))\n"
+      "(defmethod t/report [::t/default :end-run-tests] [m]\n"
+      " (when (or (zero? (:test m)) (zero? (:pass m)) (not (t/successful? m))) (js/process.exit 1)))\n"
+      "(t/run-tests " (apply str (map #(str "'" % " ") namespaces)) ")\n"))
+(println "SCI compatibility tree test namespaces:" (count namespaces))

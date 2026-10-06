@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Thirty-eight HARD, permanent, un-overridable checks
+;; Thirty-nine HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Thirty-eight HARD checks (un-overridable):
+   Thirty-nine HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -1887,6 +1887,41 @@
                   {:pass? true :reason "assignment-proctor-seating-free"})))))))))
 
 
+
+;; === Safety Flag Payload Asserted (HARD CHECK 39) ===
+;; ISIC-855 an exam-day safety flag is an escalation a human must triage, and
+;; a triage lane with no narrative is not actionable. HARD CHECK 3 legitimizes
+;; any :flag-safety-concern (the type keyword itself carries a flagging
+;; keyword), CHECK 11 binds its category, CHECK 17/19 bind its referent --
+;; yet none required the flag to SAY anything: a flag carrying only
+;; {:safety-concerns [:facility-hazard] :facility-id "room-1"} escalates with
+;; zero observed-what text, a content-free escalation the proctor cannot act
+;; on. HARD CHECK 39 closes it: a :flag-safety-concern must carry a non-blank
+;; :concern narrative in its proposal-data. Applies only to
+;; :flag-safety-concern; all other ops pass trivially. A blank narrative is
+;; rejected outright -- never held, never auto-committed at Phase 3.
+
+(defn- flag-payload-narrative
+  "The free-text narrative a safety flag must carry, or nil when unasserted."
+  [proposal]
+  (let [data (get proposal :testadmn.proposal/proposal-data {})
+        concern (:concern data)]
+    (when (string? concern) concern)))
+
+(defn- hard-check-39-safety-payload-asserted
+  "HARD CHECK 39: a :flag-safety-concern must carry a non-blank :concern
+  narrative in its proposal-data -- an escalation a human must triage has to
+  say WHAT was observed, not only which triage lane it names. Applies only to
+  :flag-safety-concern; all other ops pass trivially."
+  [proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :flag-safety-concern)
+      {:pass? true :reason "not-a-flag-safety-concern"}
+      (if (str/blank? (flag-payload-narrative proposal))
+        {:pass? false :reason "flag-payload-unasserted" :proposal proposal}
+        {:pass? true :reason "flag-payload-asserted"}))))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -1929,10 +1964,11 @@
         check36 (hard-check-36-staff-count-matches-headcount proposal)
         check37 (hard-check-37-supply-quantities-bounded proposal)
         check38 (hard-check-38-no-assignment-from-seated-roster store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check35 check36 check37 check38 check8]
+        check39 (hard-check-39-safety-payload-asserted proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check35 check36 check37 check38 check39 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check35) (:pass? check36) (:pass? check37) (:pass? check38) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check35) (:pass? check36) (:pass? check37) (:pass? check38) (:pass? check39) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))

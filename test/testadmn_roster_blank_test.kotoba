@@ -20,7 +20,7 @@
    :testadmn.proposal/effect :propose
    :testadmn.proposal/target-session-id session-id
    :testadmn.proposal/proposal-data
-   {:room "Gym A" :proctors 3 :proctor-supervision ["P. Okafor" "L. Marsh"]}})
+   {:room "Gym A"  :proctors 2 :proctor-supervision ["P. Okafor" "L. Marsh"]}})
 
 (defn- base-store
   "sess-001 registered @ 2026-07-15T09:00:00Z with a clean roster
@@ -32,7 +32,8 @@
        :testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
        :testadmn.test-session/facility-id "facility-101"
        :testadmn.test-session/roster roster
-       :testadmn.test-session/supervision #{}})))
+       :testadmn.test-session/supervision #{}})
+    s))
        ;; NOTE: session supervision left empty so check 30 never collides
        ;; with the declared :proctor-supervision on the schedule proposal.
 

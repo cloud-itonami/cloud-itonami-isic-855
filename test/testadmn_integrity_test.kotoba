@@ -7,7 +7,7 @@
 ;; used to pass silently. HARD CHECK 8 rejects it outright.
 
 (ns testadmn-integrity-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is testing]]
             [testadmn.store :as store]
             [testadmn.governor :as gov]
             [testadmn.operation :as op]))

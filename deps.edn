@@ -42,5 +42,5 @@
          :exec-fn cognitect.test-runner.api/test}
   :lint {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.11.14"}}
          :main-opts    ["-m" "clj-kondo.main"
-                        "--lint" "src" "test"
+                        "--lint" ".test-tree"
                         "--fail-level" "error"]}}}

@@ -1,0 +1,109 @@
+; testadmn_flag_safety_payload_test — HARD CHECK 39
+;; A :flag-safety-concern must carry a non-blank :concern narrative. An
+;; escalation a human must triage has to say WHAT was observed: CHECK 3
+;; legitimizes the type keyword alone, CHECK 11 binds the category, CHECK
+;; 17/19 bind the referent — without CHECK 39 a flag carrying only
+;; {:safety-concerns [:facility-hazard] :facility-id "room-1"} escalates as a
+;; content-free no-op no proctor can act on.
+
+(ns testadmn.flag-safety-payload-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [testadmn.store :as store]
+            [testadmn.governor :as gov]
+            [testadmn.operation :as op]))
+
+(defn- flag-proposal
+  [data]
+  {:testadmn.proposal/id "p39"
+   :testadmn.proposal/target-session-id "sess-001"
+   :testadmn.proposal/effect :propose
+   :testadmn.proposal/type :flag-safety-concern
+   :testadmn.proposal/proposal-data data})
+
+(defn- check39-of
+  [result]
+  ;; checks vector order: [check1..check7 check9..check38 check39 check8]
+  (nth (:checks result) 37))
+
+(deftest test-hard-check-39-narrated-safety-flag-passes
+  ;; A flag with a real observed-what narrative still escalates.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [result (gov/evaluate-proposal
+                   s
+                   (flag-proposal
+                     {:concern "ceiling panel loose over row C during check-in"
+                      :safety-concerns [:facility-hazard] :facility-id "room-1"}))]
+      (is (true? (:accepted? result)))
+      (is (= "flag-safety-concern-escalates" (:reason result)))
+      (is (= "flag-payload-asserted" (:reason (check39-of result)))))))
+
+(deftest test-hard-check-39-blank-narrative-rejected
+  ;; A category + referent with NO narrative escalates as a content-free
+  ;; no-op — rejected outright, never held, never escalated.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [result (gov/evaluate-proposal
+                   s
+                   (flag-proposal
+                     {:safety-concerns [:facility-hazard] :facility-id "room-1"}))]
+      (is (false? (:accepted? result)))
+      (is (= "flag-payload-unasserted" (:reason result))))))
+
+(deftest test-hard-check-39-whitespace-narrative-rejected
+  ;; A whitespace-only narrative is unasserted, not asserted.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [result (gov/evaluate-proposal
+                   s
+                   (flag-proposal
+                     {:concern "   "
+                      :safety-concerns [:facility-hazard] :facility-id "room-1"}))]
+      (is (false? (:accepted? result)))
+      (is (= "flag-payload-unasserted" (:reason result))))))
+
+(deftest test-hard-check-39-non-flag-op-passes-trivially
+  ;; The check only guards :flag-safety-concern; other ops pass trivially.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [proposal {:testadmn.proposal/id "p39b"
+                    :testadmn.proposal/target-session-id "sess-001"
+                    :testadmn.proposal/effect :propose
+                    :testadmn.proposal/type :schedule-test-session
+                    :testadmn.proposal/proposal-data {:room "Gym A" :proctors 3}}
+          check39 (check39-of (gov/evaluate-proposal s proposal))]
+      (is (true? (:pass? check39)))
+      (is (= "not-a-flag-safety-concern" (:reason check39))))))
+
+(deftest test-narrative-less-safety-flag-never-escalates
+  ;; End to end: at Phase 2 a narrative-less flag is rejected, never escalated.
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001" {})
+    (let [operation (op/make-operation :flag-safety-concern "sess-001"
+                                       {:safety-concerns [:facility-hazard]
+                                        :facility-id "room-1"})
+          result (op/execute-operation operation s 2)]
+      (is (= :rejected (:status result)))
+      (is (= "flag-payload-unasserted" (:reason result))))))
+
+(deftest test-hard-check-39-non-string-and-blank-narratives-rejected
+  (doseq [concern [nil 42 :hazard {} [] "\t\n"]]
+    (let [s (store/new-mem-store)]
+      (store/register-session! s "sess-001" {})
+      (let [result (gov/evaluate-proposal s
+                     (flag-proposal {:concern concern
+                                     :safety-concerns [:facility-hazard]
+                                     :facility-id "room-1"}))]
+        (is (false? (:accepted? result)))
+        (is (= "flag-payload-unasserted" (:reason result)))))))
+
+(deftest test-phase-3-safety-flags-still-require-narrative-and-human-triage
+  (doseq [[concern expected] [[nil :rejected]
+                            ["ceiling panel loose over row C" :escalated]]]
+    (let [s (store/new-mem-store)]
+      (store/register-session! s "sess-001" {})
+      (let [operation (op/make-operation :flag-safety-concern "sess-001"
+                        {:concern concern :safety-concerns [:facility-hazard]
+                         :facility-id "room-1"})
+            result (op/execute-operation operation s 3)]
+        (is (= expected (:status result)))))))
