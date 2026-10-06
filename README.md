@@ -303,7 +303,8 @@ content-bearing payload):
 ## Testing
 
 ```bash
-kbb -M:dev:test
+kbb scripts/prepare-tests.cljk
+kbb --classpath "scripts:.test-tree:<pinned-langchain>/src:<pinned-text>/src" .test-tree/runner.cljk
 ```
 
 ## Lint
@@ -330,3 +331,8 @@ kbb -M:dev -e "(require 'testadmn.sim) (clojure.pprint/pprint (testadmn.sim/run-
 - ADR-2607152700: ISIC-873 eldercare coordination
 - ADR-2607153700: ISIC-852 secondary education
 - ADR-2607152900: ISIC-851 primary education
+### Governor review test boundary (2026-10-06)
+
+The CI actor-core gate executes 33 test namespaces through a pinned Kotoba SCI host. It prepares byte-identical `.cljc` mirrors from the existing interpreter-dialect `.kotoba` source files and their declared namespace paths. A nonzero test/assertion count is required, and any failure/error fails CI. This is interpreter compatibility evidence, not Amu native/guest-grammar or selfhost qualification. The ordinary Cognitect runner did not discover these `.kotoba` tests.
+
+The HTML renderer test remains outside this actor-core gate because the declared design-system `dds+skin` helper is JVM-only. Its migration and HTML output are unverified here. The generator excludes the renderer and its test from this explicitly scoped core lint/test tree. Lint is not runtime proof. The test host pins `langchain` 42ccbf5e17dd7fcfae32c78dcfdcb242ab75e97c from the repository's declared langgraph dependency and the declared text floor 73bdb13ae7a3d004b44bca08be03a3191157a38f; `scripts/setup-test-runtime.sh` records all immutable host pins.

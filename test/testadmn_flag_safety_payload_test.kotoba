@@ -85,3 +85,25 @@
           result (op/execute-operation operation s 2)]
       (is (= :rejected (:status result)))
       (is (= "flag-payload-unasserted" (:reason result))))))
+
+(deftest test-hard-check-39-non-string-and-blank-narratives-rejected
+  (doseq [concern [nil 42 :hazard {} [] "\t\n"]]
+    (let [s (store/new-mem-store)]
+      (store/register-session! s "sess-001" {})
+      (let [result (gov/evaluate-proposal s
+                     (flag-proposal {:concern concern
+                                     :safety-concerns [:facility-hazard]
+                                     :facility-id "room-1"}))]
+        (is (false? (:accepted? result)))
+        (is (= "flag-payload-unasserted" (:reason result)))))))
+
+(deftest test-phase-3-safety-flags-still-require-narrative-and-human-triage
+  (doseq [[concern expected] [[nil :rejected]
+                            ["ceiling panel loose over row C" :escalated]]]
+    (let [s (store/new-mem-store)]
+      (store/register-session! s "sess-001" {})
+      (let [operation (op/make-operation :flag-safety-concern "sess-001"
+                        {:concern concern :safety-concerns [:facility-hazard]
+                         :facility-id "room-1"})
+            result (op/execute-operation operation s 3)]
+        (is (= expected (:status result)))))))

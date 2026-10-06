@@ -8,7 +8,7 @@
 ;; content-free no-op. HARD CHECK 11 requires a declared, recognized category.
 
 (ns testadmn-safety-category-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is testing]]
             [testadmn.store :as store]
             [testadmn.governor :as gov]
             [testadmn.operation :as op]))

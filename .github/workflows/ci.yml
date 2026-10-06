@@ -1,17 +1,28 @@
 name: CI
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   test:
+    name: Actor core SCI compatibility tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.12.0"
+      - name: Install immutable Kotoba SCI test host
+        run: bash scripts/setup-test-runtime.sh
+      - name: Prepare byte-identical interpreter source mirrors
+        run: kbb scripts/prepare-tests.cljk
+      - name: Execute every actor core test (nonzero counts required)
+        run: kbb .test-tree/runner.cljk
       - uses: DeLaGuardo/setup-clojure@13.4
         with:
           cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
-      - run: clojure -M:lint
-      - run: clojure -M:test
+      - name: Lint the actual compatibility source tree
+        run: clojure -M:lint

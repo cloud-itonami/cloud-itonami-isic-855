@@ -1,0 +1,25 @@
+(ns test-tree
+  "Byte-identical compatibility mirrors for this actor's interpreter-dialect .kotoba sources. This is SCI test evidence, not native Amu admission."
+  (:require ["fs" :as fs] ["path" :as path] [clojure.string :as str]))
+(defn files [dir]
+  (mapcat (fn [entry]
+            (let [p (path/join dir (.-name entry))]
+              (cond (.isDirectory entry) (files p)
+                    (str/ends-with? p ".kotoba") [p]
+                    :else [])))
+          (.readdirSync fs dir #js {:withFileTypes true})))
+(defn prepare! [out]
+  (.rmSync fs out #js {:recursive true :force true})
+  (let [tests (set (files "test"))]
+    (vec
+     (keep (fn [source]
+             (let [bytes (.readFileSync fs source)
+                   name (second (re-find #"(?m)^\(ns\s+([^\s()]+)" (.toString bytes)))
+                   _ (when-not name (throw (ex-info "source has no namespace" {:file source})))
+                   dest (path/join out (str (-> name (str/replace "." "/") (str/replace "-" "_")) ".cljc"))]
+               (when (.existsSync fs dest) (throw (ex-info "duplicate namespace" {:namespace name})))
+               (.mkdirSync fs (path/dirname dest) #js {:recursive true})
+               (.writeFileSync fs dest bytes)
+               (when-not (.equals bytes (.readFileSync fs dest)) (throw (ex-info "mirror bytes differ" {:file source})))
+               (when (contains? tests source) (symbol name))))
+           (concat (files "src") tests)))))

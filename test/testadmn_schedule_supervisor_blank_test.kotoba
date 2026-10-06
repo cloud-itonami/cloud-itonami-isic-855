@@ -22,7 +22,7 @@
    :testadmn.proposal/effect :propose
    :testadmn.proposal/target-session-id session-id
    :testadmn.proposal/proposal-data
-   {:room "Gym A" :proctors 3 :proctor-supervision supervision}})
+   {:room "Gym A" :proctors (if (seq supervision) (count supervision) 3) :proctor-supervision supervision}})
 
 (defn- base-store
   "sess-001 registered @ 2026-07-15T09:00:00Z with roster #{s001 s002 s003}

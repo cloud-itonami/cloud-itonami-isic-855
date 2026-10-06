@@ -8,7 +8,7 @@
 ;; would still escalate into the wrong triage lane. HARD CHECK 19 binds them.
 
 (ns testadmn-safety-referent-match-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is testing]]
             [testadmn.store :as store]
             [testadmn.governor :as gov]
             [testadmn.operation :as op]))

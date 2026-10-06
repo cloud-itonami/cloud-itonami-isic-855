@@ -115,7 +115,7 @@
 
 (deftest test-time-less-target-defers-vacuously
   ;; A blank start on the target yields no instant key, so check 31 defers;
-  ;; the schedule route's start-time binding is check 12's decision.
+  ;; the earlier downstream start-time binding still rejects the whole proposal.
   (let [s (base-store)]
     (store/register-session! s "sess-002"
       {:testadmn.test-session/name "Time-less twin"
@@ -123,7 +123,8 @@
        :testadmn.test-session/facility-id "facility-204"
        :testadmn.test-session/roster #{}})
     (let [result (gov/evaluate-proposal s (pa-proposal "sess-002" ["P. Okafor"]))]
-      (is (true? (:accepted? result)))
+      (is (false? (:accepted? result)))
+      (is (= "downstream-session-missing-start" (:reason result)))
       (is (= "assignment-start-time-unasserted" (:reason (check31 result)))))))
 
 (deftest test-non-assignment-op-passes-trivially
