@@ -25,6 +25,7 @@
 (s/def :testadmn.test-session/verified? boolean?)
 (s/def :testadmn.test-session/scheduled-start #?(:clj inst? :cljs string?))
 (s/def :testadmn.test-session/facility-id string?)
+(s/def :testadmn.test-session/scheduled-end #?(:clj inst? :cljs string?))
 (s/def :testadmn.test-session/roster (s/coll-of string? :kind set?))
 
 (s/def :testadmn/test-session
@@ -124,8 +125,8 @@
 (def ^:private session-pull
   [:testadmn.test-session/id :testadmn.test-session/name
    :testadmn.test-session/registered? :testadmn.test-session/verified?
-   :testadmn.test-session/scheduled-start :testadmn.test-session/facility-id
-   :testadmn.test-session/roster :testadmn.test-session/supervision])
+   :testadmn.test-session/scheduled-start :testadmn.test-session/scheduled-end
+   :testadmn.test-session/facility-id :testadmn.test-session/roster :testadmn.test-session/supervision])
 
 (defn- prune-nils [m] (into {} (remove (comp nil? val) m)))
 

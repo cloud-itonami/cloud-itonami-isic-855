@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Thirty-nine HARD, permanent, un-overridable checks
+;; Forty-one HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Thirty-nine HARD checks (un-overridable):
+   Forty-one HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -1922,6 +1922,76 @@
         {:pass? true :reason "flag-payload-asserted"}))))
 
 
+;; === No Room-Interval Overlap (HARD CHECK 40) ===
+;; ISIC-855 one room is occupied for a WINDOW, not an instant. HARD CHECK 25
+;; keeps two exams out of the same room at the same START instant -- but exam
+;; sessions have duration: a session registered 09:00-11:00 in facility-101
+;; and a second scheduled 10:00-12:00 in facility-101 never share a start
+;; instant, so check 25 never fires, yet the room is double-booked from 10:00
+;; -- a conflict that only surfaces when the second session's test-takers
+;; walk into an exam already in progress. HARD CHECK 40 closes the interval
+;; dimension: when a session asserts a concrete :testadmn.test-session/
+;; scheduled-end, its (start, end) window must not overlap the window of any
+;; OTHER registered session in the same facility. Applies only to
+;; :schedule-test-session; all other ops pass trivially. A schedule whose
+;; target (or whose collision partner) asserts no end passes vacuously --
+;; check 12 already binds the target's venue/start presence, and an
+;; instant-only world is exactly what check 25 polices.
+
+(defn- session-interval
+  "The (start, end) occupancy window of a session record, as a pair of
+   non-blank strings, or nil when the session carries no concrete end (or
+   non-string instants, whose lexicographic order is not defined here --
+   an instant-only world is HARD CHECK 25's)."
+  [session]
+  (let [start (get session :testadmn.test-session/scheduled-start)
+        end (get session :testadmn.test-session/scheduled-end)]
+    (when (and (string? start) (string? end)
+               (not (blank-value? start)) (not (blank-value? end)))
+      [start end])))
+
+(defn- hard-check-40-no-room-interval-overlap
+  "HARD CHECK 40: the target session of a :schedule-test-session that asserts
+   a :scheduled-end must not have its (start, end) window overlap the window
+   of any OTHER registered session in the same :facility-id. Applies only to
+   :schedule-test-session; all other ops pass trivially. Reads the whole
+   session population via store/list-sessions -- room occupancy is a property
+   of the set of sessions, not of the target alone."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [target (store/lookup-session store target-session-id)
+            tw (session-interval target)]
+        (if-not tw
+          ;; no asserted end on the TARGET: check 12 binds venue/start, check
+          ;; 25 binds the instant -- nothing interval-shaped is claimed yet
+          {:pass? true :reason "schedule-end-time-unasserted"}
+          (let [facility (str (get target :testadmn.test-session/facility-id))
+                [t-start t-end] tw
+                collisions (->> (store/list-sessions store)
+                                (filter :testadmn.test-session/registered?)
+                                (remove #(= (:testadmn.test-session/id %)
+                                            target-session-id))
+                                (keep (fn [other]
+                                        (let [ow (session-interval other)]
+                                          (when (and ow
+                                                     (= facility
+                                                        (str (get other :testadmn.test-session/facility-id)))
+                                                     (neg? (compare t-start (second ow)))
+                                                     (neg? (compare (first ow) t-end)))
+                                            {:session (:testadmn.test-session/id other)
+                                             :window ow}))))
+                                vec)]
+            (if (seq collisions)
+              {:pass? false :reason "schedule-interval-overlap"
+               :session-id target-session-id
+               :window tw
+               :collisions collisions
+               :proposal proposal}
+              {:pass? true :reason "schedule-interval-free"})))))))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -1965,10 +2035,11 @@
         check37 (hard-check-37-supply-quantities-bounded proposal)
         check38 (hard-check-38-no-assignment-from-seated-roster store proposal)
         check39 (hard-check-39-safety-payload-asserted proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check35 check36 check37 check38 check39 check8]
+        check40 (hard-check-40-no-room-interval-overlap store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check35 check36 check37 check38 check39 check40 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check35) (:pass? check36) (:pass? check37) (:pass? check38) (:pass? check39) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check35) (:pass? check36) (:pass? check37) (:pass? check38) (:pass? check39) (:pass? check40) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
