@@ -214,3 +214,32 @@
           (is (false? (:accepted? result)))
           (is (= "schedule-interval-overlap" (:reason result)))
           (is (= 2 (count (store/list-sessions s)))))))))
+
+(deftest test-overlap-across-utc-offsets-is-rejected
+  ;; 11:30+02:00 is 09:30Z — inside sess-001's 09:00Z-11:00Z window even
+  ;; though the raw strings sort after it. Windows compare as instants.
+  (let [s (occupied-interval-store)]
+    (store/register-session! s "sess-002"
+      {:testadmn.test-session/name "SAT Offset 2026-07-15"
+       :testadmn.test-session/scheduled-start "2026-07-15T11:30:00+02:00"
+       :testadmn.test-session/scheduled-end "2026-07-15T12:30:00+02:00"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s003"}})
+    (let [result (gov/evaluate-proposal s (schedule-proposal "sess-002"))]
+      (is (false? (:accepted? result)))
+      (is (= "schedule-interval-overlap" (:reason result))))))
+
+(deftest test-end-not-after-start-is-rejected
+  ;; An asserted end at or before the start is an impossible window: it is
+  ;; rejected outright rather than treated as free.
+  (doseq [end ["2026-07-15T14:00:00Z" "2026-07-15T13:00:00Z" "not-a-time"]]
+    (let [s (occupied-interval-store)]
+      (store/register-session! s "sess-002"
+        {:testadmn.test-session/name "ACT Administration 2026-07-15"
+         :testadmn.test-session/scheduled-start "2026-07-15T14:00:00Z"
+         :testadmn.test-session/scheduled-end end
+         :testadmn.test-session/facility-id "facility-101"
+         :testadmn.test-session/roster #{"s003"}})
+      (let [result (gov/evaluate-proposal s (schedule-proposal "sess-002"))]
+        (is (false? (:accepted? result)))
+        (is (= "schedule-interval-invalid" (:reason result)))))))
