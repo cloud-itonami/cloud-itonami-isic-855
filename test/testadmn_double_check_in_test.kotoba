@@ -1,0 +1,118 @@
+;; testadmn_double_check_in_test — HARD CHECK 41: no cross-note double check-in
+;;
+;; ISIC-855 attendance is a PAPER TRAIL: :log-attendance-note proposals
+;; accumulate in the store's proposal-log. Every in-note guard so far read
+;; ONE note — HARD CHECK 8 keeps a single note's :check-in/:absent disjoint,
+;; HARD CHECK 14 keeps ids distinct within a note, HARD CHECK 22 keeps the
+;; note's coverage complete — but nothing stopped a SECOND note for the same
+;; session from checking in a test-taker a prior note already seated: each
+;; note is internally impeccable, yet the trail counts that body in the exam
+;; room twice. HARD CHECK 41 rejects it outright — never held, never
+;; auto-committed at Phase 3.
+
+(ns testadmn-double-check-in-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [testadmn.store :as store]
+            [testadmn.governor :as gov]))
+
+(defn- check41-of
+  "The check-41 result is the second-to-last entry of the checks vector
+  (check 8 — the integrity check — must remain LAST)."
+  [result]
+  (second (reverse (:checks result))))
+
+(defn- attendance-note [id check-in absent]
+  {:testadmn.proposal/id id
+   :testadmn.proposal/type :log-attendance-note
+   :testadmn.proposal/effect :propose
+   :testadmn.proposal/target-session-id "sess-001"
+   :testadmn.proposal/proposal-data
+   {:check-in check-in :absent absent}})
+
+(defn- store-with-session []
+  (let [s (store/new-mem-store)]
+    (store/register-session! s "sess-001"
+      {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+       :testadmn.test-session/facility-id "facility-101"
+       :testadmn.test-session/roster #{"s001" "s002" "s003"}})
+    s))
+
+(deftest test-second-note-fresh-check-ins-pass
+  ;; A second note that seats only test-takers no prior note seated passes.
+  (let [s (store-with-session)]
+    (store/log-proposal! s (attendance-note "n1" ["s001" "s002"] ["s003"]))
+    (let [result (gov/evaluate-proposal s (attendance-note "n2" [] ["s001" "s002" "s003"]))]
+      (is (true? (:accepted? result)))
+      (is (= "all-checks-pass" (:reason result))))))
+
+(deftest test-double-check-in-rejected
+  ;; Re-seating a test-taker a prior note already checked in is an
+  ;; accumulated-trail double count: rejected outright.
+  (let [s (store-with-session)]
+    (store/log-proposal! s (attendance-note "n1" ["s001" "s002"] ["s003"]))
+    (let [result (gov/evaluate-proposal s (attendance-note "n2" ["s003"] ["s001" "s002"]))
+          check41 (check41-of result)]
+      (is (false? (:accepted? result)))
+      (is (= "attendance-double-check-in" (:reason result)))
+      (is (= "attendance-double-check-in" (:reason check41)))
+      (is (= ["s003"] (:test-takers check41))))))
+
+(deftest test-prior-note-other-session-does-not-collide
+  ;; The trail collision is per SESSION: a prior note for sess-002 says
+  ;; nothing about who may be seated in sess-001.
+  (let [s (store-with-session)]
+    (store/register-session! s "sess-002"
+      {:testadmn.test-session/scheduled-start "2026-07-15T13:00:00Z"
+       :testadmn.test-session/facility-id "facility-204"
+       :testadmn.test-session/roster #{"s001"}})
+    (store/log-proposal!
+      s
+      {:testadmn.proposal/id "n2"
+       :testadmn.proposal/type :log-attendance-note
+       :testadmn.proposal/effect :propose
+       :testadmn.proposal/target-session-id "sess-002"
+       :testadmn.proposal/proposal-data {:check-in ["s001"] :absent []}})
+    (let [result (gov/evaluate-proposal s (attendance-note "n3" ["s001"] ["s002" "s003"]))]
+      (is (true? (:accepted? result)))
+      (is (= "all-checks-pass" (:reason result))))))
+
+(deftest test-same-id-resubmission-caught-by-check29-first
+  ;; Re-submitting the SAME note id is the audit-trail overwrite that HARD
+  ;; CHECK 29 polices (check 41 excludes the proposal's own id, so the same
+  ;; id is intentionally not a cross-note collision).
+  (let [s (store-with-session)]
+    (store/log-proposal! s (attendance-note "n1" ["s001" "s002"] ["s003"]))
+    (let [result (gov/evaluate-proposal s (attendance-note "n1" ["s001" "s002"] ["s003"]))]
+      (is (false? (:accepted? result)))
+      (is (= "proposal-id-duplicate" (:reason result))))))
+
+(deftest test-check41-non-attendance-op-passes-trivially
+  ;; The check only guards :log-attendance-note; other ops pass trivially.
+  (let [s (store-with-session)
+        proposal {:testadmn.proposal/id "p1"
+                  :testadmn.proposal/type :schedule-test-session
+                  :testadmn.proposal/effect :propose
+                  :testadmn.proposal/target-session-id "sess-001"
+                  :testadmn.proposal/proposal-data {:room "Gym A" :proctors 3}}
+        result (gov/evaluate-proposal s proposal)]
+    (is (true? (:pass? (check41-of result))))
+    (is (= "not-an-attendance-note" (:reason (check41-of result))))))
+
+(deftest test-check41-mem-datomic-parity
+  ;; The cross-note collision must be detected identically on the
+  ;; Datomic-backed store: both backends read the accumulated proposal-log
+  ;; and reject the same re-seating.
+  (doseq [[make-store label] [[store/new-mem-store "MemStore"]
+                              [store/new-datomic-store "DatomicStore"]]]
+    (testing label
+      (let [s (make-store)]
+        (store/register-session! s "sess-001"
+          {:testadmn.test-session/scheduled-start "2026-07-15T09:00:00Z"
+           :testadmn.test-session/facility-id "facility-101"
+           :testadmn.test-session/roster #{"s001" "s002"}})
+        (store/log-proposal! s (attendance-note "n1" ["s001"] ["s002"]))
+        (let [fresh (gov/evaluate-proposal s (attendance-note "n2" ["s002"] ["s001"]))
+              double (gov/evaluate-proposal s (attendance-note "n3" ["s001" "s002"] []))]
+          (is (true? (:accepted? fresh)))
+          (is (false? (:accepted? double)))
+          (is (= "attendance-double-check-in" (:reason double))))))))
