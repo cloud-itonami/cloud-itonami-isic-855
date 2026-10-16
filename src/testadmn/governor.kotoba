@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Forty-one HARD, permanent, un-overridable checks
+;; Forty-two HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [kotoba.lang.text :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Forty-one HARD checks (un-overridable):
+   Forty-two HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -2028,6 +2028,57 @@
               {:pass? true :reason "schedule-interval-free"})))))))
 
 
+;; === No Cross-Note Double Check-In (HARD CHECK 41) ===
+;; ISIC-855 test administration logs per-session attendance as :check-in /
+;; :absent, and every in-note guard so far reads ONE note: HARD CHECK 8 keeps
+;; the two sets of a single note disjoint, HARD CHECK 14 keeps ids distinct
+;; within a note, HARD CHECK 22 keeps the note's coverage complete. But
+;; attendance is a PAPER TRAIL -- notes accumulate in the store's
+;; proposal-log. Nothing stopped a SECOND :log-attendance-note for the same
+;; session from checking in a test-taker a prior note already seated: each
+;; note is internally impeccable, yet the trail now counts that body in the
+;; exam room twice -- the accumulated-trail analog of HARD CHECK 14's
+;; within-note duplicate. HARD CHECK 41 closes it: a :log-attendance-note
+;; whose :check-in ids intersect the :check-in ids of any PRIOR logged
+;; attendance note for the same target session (a different proposal id --
+;; resubmitting the same note is HARD CHECK 29's territory) is rejected
+;; outright -- never held, never auto-committed at Phase 3. A session with no
+;; prior attendance note passes vacuously, as does an unasserted :check-in
+;; (a note whose check-in is empty asserts no seatings to double-count).
+;; Reads the whole proposal-log via store/proposal-log -- trail occupancy is
+;; a property of the accumulated log, not of the note alone.
+
+(defn- prior-check-in-ids
+  "The union of :check-in ids across every PRIOR logged :log-attendance-note
+   for the same target session (excluding the incoming proposal by id), as a
+   set. Empty when the trail holds no earlier note."
+  [store proposal]
+  (let [target (:testadmn.proposal/target-session-id proposal)
+        self (:testadmn.proposal/id proposal)]
+    (->> (store/proposal-log store)
+         (filter #(= :log-attendance-note (:testadmn.proposal/type %)))
+         (filter #(= target (:testadmn.proposal/target-session-id %)))
+         (remove #(= self (:testadmn.proposal/id %)))
+         (map #(get (named-attendance-sets %) :check-in))
+         (reduce set/union #{}))))
+
+(defn- hard-check-41-no-cross-note-double-check-in
+  "HARD CHECK 41: a :log-attendance-note must not check in a test-taker a
+   PRIOR attendance note for the same session already checked in. Applies
+   only to :log-attendance-note; all other ops pass trivially."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type]} proposal]
+    (if (not= type :log-attendance-note)
+      {:pass? true :reason "not-an-attendance-note"}
+      (let [{:keys [check-in]} (named-attendance-sets proposal)
+            seen (prior-check-in-ids store proposal)
+            re-seated (set/intersection check-in seen)]
+        (if (seq re-seated)
+          {:pass? false :reason "attendance-double-check-in"
+           :test-takers (vec re-seated) :proposal proposal}
+          {:pass? true :reason "attendance-check-in-fresh"})))))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -2072,10 +2123,11 @@
         check38 (hard-check-38-no-assignment-from-seated-roster store proposal)
         check39 (hard-check-39-safety-payload-asserted proposal)
         check40 (hard-check-40-no-room-interval-overlap store proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check35 check36 check37 check38 check39 check40 check8]
+        check41 (hard-check-41-no-cross-note-double-check-in store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check9 check10 check11 check12 check13 check14 check15 check16 check17 check18 check19 check20 check21 check22 check23 check24 check25 check26 check27 check28 check29 check30 check31 check32 check33 check34 check35 check36 check37 check38 check39 check40 check41 check8]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check35) (:pass? check36) (:pass? check37) (:pass? check38) (:pass? check39) (:pass? check40) (:pass? check8))
+                       (:pass? check7) (:pass? check9) (:pass? check10) (:pass? check11) (:pass? check12) (:pass? check13) (:pass? check14) (:pass? check15) (:pass? check16) (:pass? check17) (:pass? check18) (:pass? check19) (:pass? check20) (:pass? check21) (:pass? check22) (:pass? check23) (:pass? check24) (:pass? check25) (:pass? check26) (:pass? check27) (:pass? check28) (:pass? check29) (:pass? check30) (:pass? check31) (:pass? check32) (:pass? check33) (:pass? check34) (:pass? check35) (:pass? check36) (:pass? check37) (:pass? check38) (:pass? check39) (:pass? check40) (:pass? check41) (:pass? check8))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
