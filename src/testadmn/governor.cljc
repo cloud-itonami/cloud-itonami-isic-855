@@ -1,5 +1,5 @@
 ;; testadmn.governor — Test Administration Governor
-;; Eight HARD, permanent, un-overridable checks
+;; Nine HARD, permanent, un-overridable checks
 
 (ns testadmn.governor
   (:require [clojure.string :as str]
@@ -10,7 +10,7 @@
   "Governor enforces permanent scope boundaries and rejects any proposal
    violating them.
 
-   Eight HARD checks (un-overridable):
+   Nine HARD checks (un-overridable):
    1. Test-session verified — target must exist in store AND be :registered?/:verified?
    2. Effect is :propose — any other :effect value is rejected outright
    3. Scope exclusion — test-content, scoring, eligibility, academic-integrity
@@ -47,7 +47,14 @@
       same test-taker as both :check-in and :absent in the same session; the
       two sets must be disjoint. A self-contradiction is an ambiguous
       attendance record (the paper-trail equivalent of proxy/ghost attendance)
-      and is rejected outright — never held, never auto-committed at Phase 3.")
+      and is rejected outright — never held, never auto-committed at Phase 3.
+   9. Schedule start is a concrete timestamp — the target session of a
+      :schedule-test-session must carry a :scheduled-start that is a
+      well-formed ISO-8601 date-time (e.g. \"2026-07-15T09:00:00Z\", or with an
+      offset). A start that is blank, or a string that is not a parseable
+      ISO-8601 date-time (\"09:00\", \"tomorrow\", \"ASAP\"), is not a time you
+      can place an exam at — it is rejected outright, never held, never
+      auto-committed at Phase 3." )
 
 ;; === Scope Exclusion Keywords ===
 (def ^:private forbidden-keywords
@@ -384,6 +391,58 @@
           {:pass? true :reason "attendance-non-contradictory"})))))
 
 
+;; === Schedule Start Is A Concrete Timestamp (HARD CHECK 9) ===
+;; ISIC-855 test administration coordinates WHEN a test session actually runs.
+;; :schedule-test-session is the Phase-1 scheduling act and the FIRST op the
+;; closed allowlist auto-commits at Phase 3 (see phase.cljc: every op except
+;; :flag-safety-concern auto-commits clean proposals at Phase 3). Checks 1-8
+;; only verify the schedule's box is checked, not that it names a real time:
+;; check 1 requires existence/registration, check 2 requires :effect :propose,
+;; check 3 guards scope, checks 4-8 guard proctor/accommodation/enrollment/
+;; supply/attendance. None of them enforce that :scheduled-start is an actual,
+;; parseable ISO-8601 date-time. A `:schedule-test-session` whose start reads
+;; \"09:00\", \"tomorrow\", or \"ASAP\" therefore passes checks 1-8 and (at
+;; Phase 3) auto-commits an exam plan you cannot place at a real time. HARD
+;; CHECK 9 closes that: the target session of a :schedule-test-session must
+;; carry a :scheduled-start that is a well-formed ISO-8601 date-time
+;; (e.g. \"2026-07-15T09:00:00Z\" or \"2026-07-15T18:00:00+09:00\"); otherwise
+;; it is rejected outright, never held, never auto-committed at Phase 3.
+
+(def ^:private iso-8601-datetime-re
+  ;; Tolerant ISO-8601: YYYY-MM-DD[T ]HH:MM[:SS[.fff]][Z|+HH:MM|+HHMM|Z-less].
+  ;; Kept as a regex (not clojure.instant) so the same .cljc runs unmodified on
+  ;; both the JVM and the Babashka cljs backend the sibling ISIC actors use.
+  #"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?([Zz]|[+-]\d{2}:?\d{2})?$")
+
+(defn- well-formed-scheduled-start?
+  "True when the session's :scheduled-start is a concrete ISO-8601 date-time.
+   Accepts the RFC3339-shaped strings the store seeds and the Datomic cljs
+   string representation; a JVM inst (or any non-string non-blank value) is
+   already a real timestamp and passes. Blank / malformed-format / omitted
+   values are not a time you can place an exam at."
+  [session]
+  (let [start (:testadmn.test-session/scheduled-start session)]
+    (cond
+      (nil? start)              false
+      (string? start)           (boolean (re-matches iso-8601-datetime-re
+                                                     (str/trim start)))
+      :else                     true)))
+
+(defn- hard-check-9-schedule-start-verified
+  "HARD CHECK 9: the target session of a :schedule-test-session must carry a
+   :scheduled-start that is a concrete, well-formed ISO-8601 date-time.
+   Applies only to :schedule-test-session; all other ops pass trivially."
+  [store proposal]
+  (let [{:keys [testadmn.proposal/type testadmn.proposal/target-session-id]} proposal]
+    (if (not= type :schedule-test-session)
+      {:pass? true :reason "not-a-schedule"}
+      (let [session (store/lookup-session store target-session-id)]
+        (if (well-formed-scheduled-start? session)
+          {:pass? true :reason "schedule-start-verified"}
+          {:pass? false :reason "schedule-start-not-concrete-timestamp"
+           :session-id target-session-id})))))
+
+
 (defn evaluate-proposal
   "Evaluate proposal against all HARD checks.
    Returns {:accepted? boolean :checks [check-results] :reason string}"
@@ -396,10 +455,11 @@
         check6 (hard-check-6-test-taker-enrollment store proposal)
         check7 (hard-check-7-supply-allowlist proposal)
         check8 (hard-check-8-attendance-self-contradiction proposal)
-        checks [check1 check2 check3 check4 check5 check6 check7 check8]
+        check9 (hard-check-9-schedule-start-verified store proposal)
+        checks [check1 check2 check3 check4 check5 check6 check7 check8 check9]
         all-pass? (and (:pass? check1) (:pass? check2) (:pass? check3)
                        (:pass? check4) (:pass? check5) (:pass? check6)
-                       (:pass? check7) (:pass? check8))
+                       (:pass? check7) (:pass? check8) (:pass? check9))
         reason (cond
                  (not all-pass?)
                  (or (:reason (some #(when-not (:pass? %) %) checks))
